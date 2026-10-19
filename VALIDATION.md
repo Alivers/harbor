@@ -25,7 +25,7 @@ Same date, on Linux (no Mac was available for this change set):
 
 Same date. The app layer was rewritten (split view, glass activity capsule, concurrent jobs, inspector, parsed resource tables), and the minimum is now macOS 27.
 
-- **CI builds the app with zero compiler warnings** on GitHub's macOS runner. Xcode 27 was not on that image, so the build used Xcode 26.6 and the macOS 26.5 SDK with a macOS 27 deployment target. Building against the macOS 27 SDK is still to be confirmed.
+- **CI builds the app with zero compiler warnings** on GitHub's macOS runner. Xcode 27 was not on that image, and a `macos-27` job was never picked up by a runner, so the build used Xcode 26.6 and the macOS 26.5 SDK with a macOS 27 deployment target. Building against the macOS 27 SDK is still to be confirmed.
 - **All 21 core checks pass** on Linux (Swift 6.1, locally and in CI). The new checks cover `TextTable` parsing, port links, the per-entry Run Container validation, `example(naming:)` and pretty JSON. A macOS 26 runner cannot launch binaries built for macOS 27, so the checks were built but not run on macOS.
 - `Store.swift` (now `@Observable`) was type-checked on Linux against stand-ins for the AppKit symbols it uses. It was exercised with fake executables: concurrent jobs, refusal of a second job on the same resource, banners for failures and successes, cancel, output shown only when requested, and `--help`-gated features.
 - **The redesigned UI has not been launched or looked at.** Layout, Liquid Glass rendering, animations and the sheet hand-offs need a run on macOS 27.

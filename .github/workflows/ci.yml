@@ -12,7 +12,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
-      - name: Select the newest Xcode with the macOS 27 SDK
+      # GitHub serves no macos-27 image yet; use Xcode 27 as soon as this image ships it.
+      - name: Select Xcode 27 when available
         run: |
           ls -d /Applications/Xcode*.app
           xcode="$(ls -d /Applications/Xcode_27*.app 2>/dev/null | sort -V | tail -1)"
@@ -29,19 +30,6 @@ jobs:
             swift build --scratch-path "$RUNNER_TEMP/build" --product HarborChecks
             echo "Runner is older than macOS 27: HarborChecks built but not run here."
           fi
-
-  macos-27:
-    name: macOS 27 app build and core checks
-    runs-on: macos-27
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v5
-      - name: Toolchain
-        run: sw_vers && xcodebuild -version && xcrun --sdk macosx --show-sdk-version && swift --version
-      - name: Build Harbor.app
-        run: HARBOR_BUILD_DIR="$RUNNER_TEMP/build" bash scripts/build-app.sh
-      - name: Core checks
-        run: swift run --scratch-path "$RUNNER_TEMP/build" HarborChecks
 
   linux-core:
     name: Core checks on Linux

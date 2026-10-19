@@ -66,7 +66,7 @@ optional Compose → Docker CLI --host unix://<socktainer socket> → Socktainer
 - `HarborApp.swift`: app scene, menu commands and keyboard shortcuts, `Color.harbor`, the `ViewState` alias.
 - `RootView.swift`: `NavigationSplitView`, the `Page` enum (`group` maps a page to its catalog group) and sidebar sections, sheet routing, polling, and the overlay that hosts the activity capsule.
 - `ActivityViews.swift`: the Liquid Glass activity capsule, the Activity popover and `JobOutputSheet`.
-- `ContainersView.swift`, `ImagesView.swift`, `RunContainerSheet.swift` (with `PullImageSheet` in the images file), `ComposeView.swift`, `EngineView.swift` (also `EngineSetupView` for first-run states and `SettingsView`).
+- `ContainersView.swift`, `ImagesView.swift`, `RunContainerSheet.swift` (with `PullImageSheet` in the images file), `ComposeView.swift`, `EngineView.swift` (also `EngineSetupView` for first-run states, and `SettingsView`, which edits a draft that `Store.applySettings` commits so half-typed paths never reach the live config).
 - `NativeViews.swift`: `ResourceView` for build/network/volume/machine/registry/k8s (the CLI listing parsed with `TextTable`, per-row actions from `Page.rowActions` that prefill the resource name via `NativeOperation.example(naming:)`), the command catalog, and `NativeOperationSheet` (edit args, load and verify local `--help`, enable Run only if the help matched, confirm destructive ops, optionally run in Terminal; `system dns create/delete` run with `sudo` in Terminal).
 - `Components.swift`: `LogTextView`/`OutputPanel` (NSTextView-backed output that appends incrementally and follows the end), `PortLinks`, `StateBadge`, `RowIcon`, `EntryListEditor`, and the `card()` modifier.
 

@@ -19,7 +19,7 @@ Checked against the actual help output of the official Apple Container **1.5.0**
 
 | Category | Current implementation |
 | --- | --- |
-| Containers | Native JSON list with filter and search, run form, start/stop/restart, delete (stopping first), port links, inspector with details, live logs and inspect JSON, Terminal shell; copy, export, stats and prune go through the command panel |
+| Containers | Native JSON list with filter and search, run form, start/stop/restart, delete (stopping first), port links, inspector with details, live logs and inspect JSON, stats, Terminal shell; copy, export and prune go through the command panel |
 | Images | Native list with search, background pull, run from image, multi-select delete; push, tag, save, load, inspect and prune go through the command panel |
 | Build | BuildKit status, image builds, builder start/stop/delete |
 | Networks, volumes | Lists read from the CLI and shown as tables, with inspect/delete per row; create and prune entries |
