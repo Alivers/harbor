@@ -51,10 +51,14 @@ struct RootView: View {
                 .overlay(alignment: .bottom) { ActivityCapsule().padding(.bottom, 18) }
         }
         .sheet(item: $store.sheet) { route in SheetView(route: route) }
-        .task { await store.poll() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await store.refresh() }
         }
+        .onChange(of: store.requestedPage) { _, requested in
+            if let requested { page = requested; store.requestedPage = nil }
+        }
+        // Compose files, image archives and build contexts can be dropped anywhere in the window.
+        .dropDestination(for: URL.self) { urls, _ in store.open(urls) }
     }
     @ViewBuilder private var detail: some View {
         switch page {
@@ -76,6 +80,11 @@ private struct SheetView: View {
         case .pull: PullImageSheet()
         case .operation(let request): NativeOperationSheet(request: request)
         case .output(let job): JobOutputSheet(job: job)
+        case .build(let options): BuildImageSheet(options: options)
+        case .tag(let image): TagImageSheet(image: image)
+        case .createNetwork: CreateNetworkSheet()
+        case .createVolume: CreateVolumeSheet()
+        case .importImages: ImportImagesSheet()
         }
     }
 }

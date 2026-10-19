@@ -19,7 +19,8 @@ public enum NativeParser {
                 throw HarborError.message("Container JSON is missing the status field.")
             }
             let networks = (status?["networks"] ?? row["networks"]) as? [[String: Any]] ?? []
-            let addresses = networks.compactMap { $0["ipv4Address"] as? String }.joined(separator: ", ")
+            // 1.5.0 prints the address with its prefix length (192.168.64.3/24); the row shows the address.
+            let addresses = networks.compactMap { ($0["ipv4Address"] ?? $0["address"]) as? String }.map(Self.address).joined(separator: ", ")
             let resources = config["resources"] as? [String: Any] ?? [:]
             let cpus = (resources["cpus"] as? NSNumber)?.stringValue ?? "?"
             let memory = (resources["memoryInBytes"] as? NSNumber)?.int64Value ?? 0
@@ -27,9 +28,63 @@ public enum NativeParser {
                 guard let host = (port["hostPort"] as? NSNumber)?.intValue, let target = (port["containerPort"] as? NSNumber)?.intValue else { return nil }
                 return PortMapping(hostAddress: port["hostAddress"] as? String ?? "", hostPort: host, containerPort: target, transport: (port["proto"] ?? port["protocol"]) as? String ?? "tcp")
             }
-            let details = "\(cpus) CPU · \(ByteCountFormatter.string(fromByteCount: memory, countStyle: .memory))" + (addresses.isEmpty ? "" : " · " + addresses)
-            return ContainerRow(id: id, name: id, image: reference, state: state, status: details, ports: mappings.map(\.label).joined(separator: ", "), portMappings: mappings)
+            let summary = "\(cpus) CPU · \(ByteCountFormatter.string(fromByteCount: memory, countStyle: .memory))" + (addresses.isEmpty ? "" : " · " + addresses)
+            return ContainerRow(id: id, name: id, image: reference, state: state, status: summary, ports: mappings.map(\.label).joined(separator: ", "),
+                                portMappings: mappings, details: details(config, status: status, runtimeNetworks: networks))
         }
+    }
+    private static func details(_ config: [String: Any], status: [String: Any]?, runtimeNetworks: [[String: Any]]) -> ContainerDetails {
+        var d = ContainerDetails()
+        d.created = date(config["creationDate"])
+        d.started = date(status?["startedDate"])
+        let process = config["initProcess"] as? [String: Any] ?? [:]
+        d.command = ([process["executable"] as? String].compactMap { $0 } + (process["arguments"] as? [String] ?? [])).filter { !$0.isEmpty }
+        d.workingDirectory = process["workingDirectory"] as? String ?? ""
+        d.environment = process["environment"] as? [String] ?? []
+        // `user` is an enum: {"id":{"uid":0,"gid":0}} or {"raw":{"userString":"nginx"}}.
+        if let user = process["user"] as? [String: Any] {
+            if let raw = user["raw"] as? [String: Any], let name = raw["userString"] as? String { d.user = name }
+            else if let ids = user["id"] as? [String: Any], let uid = ids["uid"] as? NSNumber { d.user = uid.stringValue + ((ids["gid"] as? NSNumber).map { ":" + $0.stringValue } ?? "") }
+        } else if let user = process["user"] as? String { d.user = user }
+        // The mount type is an enum too: {"virtiofs":{}}, {"tmpfs":{}}, {"volume":{"name":…}} or {"block":{…}}.
+        d.mounts = (config["mounts"] as? [[String: Any]] ?? []).compactMap { mount in
+            guard let destination = mount["destination"] as? String else { return nil }
+            let type = mount["type"] as? [String: Any] ?? [:]
+            let options = mount["options"] as? [String] ?? []
+            var kind = type.keys.sorted().first ?? (mount["type"] as? String ?? "")
+            var source = mount["source"] as? String ?? ""
+            if kind == "virtiofs" { kind = "bind" }
+            if kind == "volume", let name = (type["volume"] as? [String: Any])?["name"] as? String { source = name }
+            return ContainerDetails.Mount(kind: kind, source: source, destination: destination, readOnly: options.contains("ro"))
+        }
+        // Configured networks are known even while stopped; the running ones add their addresses.
+        let live = Dictionary(runtimeNetworks.compactMap { n in (n["network"] as? String).map { ($0, n) } }, uniquingKeysWith: { a, _ in a })
+        var names = (config["networks"] as? [[String: Any]] ?? []).compactMap { $0["network"] as? String }
+        names += live.keys.filter { !names.contains($0) }.sorted()
+        d.networks = names.map { name in
+            let n = live[name]
+            let configured = (config["networks"] as? [[String: Any]])?.first { $0["network"] as? String == name }
+            let hostname = (n?["hostname"] as? String) ?? ((configured?["options"] as? [String: Any])?["hostname"] as? String) ?? ""
+            return ContainerDetails.Network(name: name, address: ((n?["ipv4Address"] ?? n?["address"]) as? String).map(address) ?? "",
+                                            gateway: (n?["ipv4Gateway"] ?? n?["gateway"]) as? String ?? "", hostname: hostname)
+        }
+        d.labels = config["labels"] as? [String: String] ?? [:]
+        if let platform = config["platform"] as? [String: Any], let os = platform["os"] as? String, let arch = platform["architecture"] as? String {
+            d.platform = os + "/" + arch
+        }
+        return d
+    }
+    /// An address without its prefix length.
+    static func address(_ cidr: String) -> String { cidr.split(separator: "/").first.map(String.init) ?? cidr }
+    /// 1.5.0 prints ISO 8601 dates; older CLIs printed seconds since 2001-01-01.
+    public static func date(_ value: Any?) -> Date? {
+        if let text = value as? String {
+            let formatter = ISO8601DateFormatter()
+            if let date = formatter.date(from: text) { return date }
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            return formatter.date(from: text)
+        }
+        return (value as? NSNumber).map { Date(timeIntervalSinceReferenceDate: $0.doubleValue) }
     }
     public static func images(_ text: String) throws -> [ImageRow] {
         try objects(text).map { row in
@@ -39,11 +94,19 @@ public enum NativeParser {
             }
             let descriptor = config["descriptor"] as? [String: Any] ?? [:]
             let digest = descriptor["digest"] as? String ?? reference
-            let variants = row["variants"] as? [[String: Any]] ?? []
+            // Attestation manifests appear as unknown/unknown variants; they are not part of the image's size.
+            let variants = (row["variants"] as? [[String: Any]] ?? []).filter { (($0["platform"] as? [String: Any])?["os"] as? String) != "unknown" }
             let size = variants.reduce(Int64(0)) { $0 + (($1["size"] as? NSNumber)?.int64Value ?? 0) }
             let (repository, tag) = ImageReference.split(reference)
-            return ImageRow(reference: reference, repository: repository, tag: tag, digest: digest, size: size > 0 ? ByteCountFormatter.string(fromByteCount: size, countStyle: .file) : "—")
+            // The CLI reports the Unix epoch when no variant records a creation time.
+            let created = date(config["creationDate"]).flatMap { $0.timeIntervalSince1970 > 0 ? $0 : nil }
+            return ImageRow(reference: reference, repository: repository, tag: tag, digest: digest,
+                            size: size > 0 ? ByteCountFormatter.string(fromByteCount: size, countStyle: .file) : "—", created: created)
         }
+    }
+    /// `container stats --format json` rows; CPU time is cumulative, so a percentage needs two samples.
+    public static func stats(_ text: String) throws -> [ContainerStats] {
+        try JSONDecoder().decode([ContainerStats].self, from: Data(text.utf8))
     }
 }
 

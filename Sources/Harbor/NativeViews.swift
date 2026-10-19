@@ -26,6 +26,18 @@ extension Page {
     } }
 }
 
+extension Page {
+    /// The page's own create form, opened from its toolbar.
+    var createAction: (title: String, route: SheetRoute)? {
+        switch self {
+        case .networks: ("Create Network", .createNetwork)
+        case .volumes: ("Create Volume", .createVolume)
+        case .build: ("Build Image", .build(BuildOptions()))
+        default: nil
+        }
+    }
+}
+
 extension NativeOperation {
     var symbol: String { switch path.last ?? "" {
     case "list", "df": "list.bullet"; case "inspect", "status", "version", "property": "info.circle"
@@ -62,6 +74,12 @@ struct ResourceView: View {
         .navigationTitle(page.title)
         .navigationSubtitle("container " + page.listing.joined(separator: " "))
         .toolbar {
+            if let create = page.createAction {
+                ToolbarItem(placement: .primaryAction) {
+                    Button { store.present(create.route) } label: { Label(create.title, systemImage: "plus") }
+                        .disabled(!store.engine.isRunning).help(create.title)
+                }
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button { Task { await load() } } label: { Label("Reload", systemImage: "arrow.clockwise") }.help("Read the list again")
             }
@@ -79,7 +97,7 @@ struct ResourceView: View {
                 ProgressView().frame(maxWidth: .infinity, minHeight: 80)
             } else if let table = TextTable.parse(output) {
                 if table.rows.isEmpty { Text("Nothing here yet.").foregroundStyle(.secondary) }
-                else { ResourceTable(table: table, actions: page.rowActions.compactMap(NativeOperation.named)) }
+                else { ResourceTable(table: table, actions: page.rowActions.compactMap(NativeOperation.named), usedBy: usedBy) }
             } else {
                 ScrollView(.horizontal) {
                     Text(output.isEmpty ? "No output." : output).font(.callout.monospaced()).textSelection(.enabled)
@@ -88,6 +106,18 @@ struct ResourceView: View {
         }
         .card()
         .animation(.smooth, value: output)
+    }
+    /// Containers that use a listed network or volume, from their configuration; nil on other pages.
+    private var usedBy: ((String) -> [String])? {
+        let containers = store.containers
+        switch page {
+        case .volumes:
+            return { name in containers.filter { c in c.details?.volumeNames.contains(name) == true }.map(\.name) }
+        case .networks:
+            return { name in containers.filter { c in c.details?.networks.contains { network in network.name == name } == true }.map(\.name) }
+        default:
+            return nil
+        }
     }
     private func load() async {
         do { let text = try await store.read(page.listing, timeout: 15); if text != output { output = text }; failure = nil }
@@ -100,18 +130,25 @@ private struct ResourceTable: View {
     @Environment(Store.self) private var store
     let table: TextTable
     let actions: [NativeOperation]
+    var usedBy: ((String) -> [String])?
     var body: some View {
         Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 8) {
             GridRow {
                 ForEach(table.columns.indices, id: \.self) { i in
                     Text(table.columns[i].capitalized).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 }
+                if usedBy != nil { Text("Used By").font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
             }
             Divider()
             ForEach(table.rows.indices, id: \.self) { r in
                 GridRow {
                     ForEach(table.columns.indices, id: \.self) { i in
                         Text(table.rows[r][i]).font(i == 0 ? Font.callout.weight(.medium) : Font.callout).lineLimit(1).textSelection(.enabled)
+                    }
+                    if let usedBy {
+                        let names = usedBy(table.rows[r].first ?? "")
+                        Text(names.isEmpty ? "—" : names.joined(separator: ", ")).font(.callout).foregroundStyle(names.isEmpty ? .tertiary : .secondary)
+                            .lineLimit(1).help(names.joined(separator: ", "))
                     }
                     if !actions.isEmpty, let name = table.rows[r].first, !name.isEmpty {
                         Menu {

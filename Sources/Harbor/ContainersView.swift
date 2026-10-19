@@ -6,8 +6,21 @@ enum ContainerFilter: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+enum ContainerSort: String, CaseIterable, Identifiable {
+    case name = "Name", image = "Image", state = "State", created = "Newest First"
+    var id: String { rawValue }
+    func ordered(_ rows: [ContainerRow]) -> [ContainerRow] {
+        switch self {
+        case .name: rows.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        case .image: rows.sorted { ($0.image, $0.name) < ($1.image, $1.name) }
+        case .state: rows.sorted { ($0.running ? 0 : 1, $0.name) < ($1.running ? 0 : 1, $1.name) }
+        case .created: rows.sorted { ($0.details?.created ?? .distantPast) > ($1.details?.created ?? .distantPast) }
+        }
+    }
+}
+
 enum InspectorTab: String, CaseIterable, Identifiable {
-    case overview = "Overview", logs = "Logs", inspect = "Inspect"
+    case overview = "Overview", logs = "Logs", stats = "Stats", files = "Files", inspect = "Inspect"
     var id: String { rawValue }
 }
 
@@ -15,18 +28,20 @@ struct ContainersView: View {
     @Environment(Store.self) private var store
     @ViewState<String> private var search = ""
     @ViewState<ContainerFilter> private var filter: ContainerFilter = .all
-    @ViewState<String?> private var selection: String?
+    @ViewState<ContainerSort> private var sort: ContainerSort = .name
+    @ViewState<Set<String>> private var selection: Set<String> = []
     @ViewState<Bool> private var showInspector = false
     @ViewState<InspectorTab> private var tab: InspectorTab = .overview
-    @ViewState<ContainerRow?> private var pendingDelete: ContainerRow?
+    @ViewState<[ContainerRow]> private var pendingDelete: [ContainerRow] = []
 
     private var rows: [ContainerRow] {
-        store.containers.filter { c in
+        sort.ordered(store.containers.filter { c in
             (filter == .all || c.running == (filter == .running))
                 && (search.isEmpty || (c.name + " " + c.image).localizedCaseInsensitiveContains(search))
-        }
+        })
     }
-    private var selected: ContainerRow? { store.containers.first { $0.id == selection } }
+    /// The inspector follows a single selection.
+    private var selected: ContainerRow? { selection.count == 1 ? store.containers.first { selection.contains($0.id) } : nil }
 
     var body: some View {
         content
@@ -35,13 +50,16 @@ struct ContainersView: View {
             .searchable(text: $search, placement: .toolbar, prompt: "Name or image")
             .toolbar { toolbar }
             .inspector(isPresented: $showInspector) {
-                ContainerInspector(container: selected, tab: $tab, onDelete: { pendingDelete = $0 })
-                    .inspectorColumnWidth(min: 300, ideal: 380, max: 560)
+                ContainerInspector(container: selected, selectionCount: selection.count, tab: $tab, onDelete: { pendingDelete = [$0] })
+                    .inspectorColumnWidth(min: 320, ideal: 400, max: 600)
             }
-            .confirmationDialog("Delete “\(pendingDelete?.name ?? "")”?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
-                                titleVisibility: .visible, presenting: pendingDelete) { c in
-                Button(c.running ? "Stop and Delete" : "Delete", role: .destructive) { store.delete(c) }
-            } message: { _ in Text("The container's writable layer is removed. Images and volumes are kept.") }
+            .confirmationDialog(deleteTitle, isPresented: Binding(get: { !pendingDelete.isEmpty }, set: { if !$0 { pendingDelete = [] } }),
+                                titleVisibility: .visible) {
+                Button(pendingDelete.contains(where: \.running) ? "Stop and Delete" : "Delete", role: .destructive) { pendingDelete.forEach { store.delete($0) } }
+            } message: { Text("The containers' writable layers are removed. Images and volumes are kept.") }
+    }
+    private var deleteTitle: String {
+        pendingDelete.count == 1 ? "Delete “\(pendingDelete[0].name)”?" : "Delete \(pendingDelete.count) containers?"
     }
 
     private var subtitle: String {
@@ -69,12 +87,27 @@ struct ContainersView: View {
                 ForEach(rows) { ContainerListRow(container: $0) }
             }
             .contextMenu(forSelectionType: String.self) { ids in
-                if let c = store.containers.first(where: { ids.contains($0.id) }) { menu(for: c) }
+                let chosen = store.containers.filter { ids.contains($0.id) }
+                if chosen.count == 1, let c = chosen.first { menu(for: c) }
+                else if !chosen.isEmpty { bulkMenu(for: chosen) }
             } primaryAction: { ids in
-                selection = ids.first; tab = .overview; showInspector = true
+                selection = ids; tab = .overview; showInspector = true
             }
             .animation(.smooth, value: rows)
         }
+    }
+
+    /// Actions for several selected containers; each one runs as its own job.
+    @ViewBuilder private func bulkMenu(for chosen: [ContainerRow]) -> some View {
+        let stopped = chosen.filter { !$0.running && !store.isBusy($0.id) }
+        let running = chosen.filter { $0.running && !store.isBusy($0.id) }
+        Button("Start \(stopped.count) Containers") { stopped.forEach { store.start($0) } }.disabled(stopped.isEmpty)
+        Button("Stop \(running.count) Containers") { running.forEach { store.stop($0) } }.disabled(running.isEmpty)
+        Button("Restart \(running.count) Containers") { running.forEach { store.restart($0) } }.disabled(running.isEmpty)
+        Divider()
+        Button("Copy IDs") { store.copy(chosen.map(\.id).joined(separator: "\n")) }
+        Divider()
+        Button("Delete \(chosen.count) Containers…", role: .destructive) { pendingDelete = chosen }
     }
 
     @ViewBuilder private func menu(for c: ContainerRow) -> some View {
@@ -87,20 +120,28 @@ struct ContainersView: View {
             Button("Start") { store.start(c) }.disabled(busy)
         }
         Divider()
-        Button("Show Logs") { selection = c.id; tab = .logs; showInspector = true }
-        Button("Show Details") { selection = c.id; tab = .overview; showInspector = true }
-        Button("Show Stats") { store.perform("Stats for \(c.name)", command: store.config.nativeCommand(["stats", "--no-stream", c.id]), showOutput: true) }
-            .disabled(!c.running)
+        Button("Show Details") { show(c, .overview) }
+        Button("Show Logs") { show(c, .logs) }
+        Button("Show Stats") { show(c, .stats) }.disabled(!c.running)
+        Button("Browse Files") { show(c, .files) }.disabled(!c.running)
         ForEach(c.portMappings.compactMap(\.url), id: \.self) { url in Link("Open \(url.host() ?? ""):\(url.port ?? 0)", destination: url) }
         Button("Copy ID") { store.copy(c.id) }
         Divider()
-        Button("Delete…", role: .destructive) { pendingDelete = c }.disabled(busy)
+        Button("Delete…", role: .destructive) { pendingDelete = [c] }.disabled(busy)
     }
+    private func show(_ c: ContainerRow, _ section: InspectorTab) { selection = [c.id]; tab = section; showInspector = true }
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .principal) {
             Picker("Show", selection: $filter) { ForEach(ContainerFilter.allCases) { Text($0.rawValue).tag($0) } }
                 .pickerStyle(.segmented).fixedSize()
+        }
+        ToolbarItem(placement: .primaryAction) {
+            Menu {
+                Picker("Sort By", selection: $sort) { ForEach(ContainerSort.allCases) { Text($0.rawValue).tag($0) } }
+                    .pickerStyle(.inline)
+            } label: { Label("Sort", systemImage: "arrow.up.arrow.down") }
+            .help("Sort containers")
         }
         ToolbarItem(placement: .primaryAction) {
             Button { store.present(.run(RunOptions())) } label: { Label("Run Container", systemImage: "plus") }
@@ -157,6 +198,7 @@ private struct ContainerListRow: View {
 private struct ContainerInspector: View {
     @Environment(Store.self) private var store
     let container: ContainerRow?
+    let selectionCount: Int
     @Binding var tab: InspectorTab
     let onDelete: (ContainerRow) -> Void
     var body: some View {
@@ -167,9 +209,14 @@ private struct ContainerInspector: View {
                 switch tab {
                 case .overview: ContainerOverview(container: container, onDelete: onDelete)
                 case .logs: ContainerLogs(container: container)
+                case .stats: ContainerStatsView(container: container)
+                case .files: ContainerFilesView(container: container)
                 case .inspect: ContainerJSON(container: container)
                 }
             }
+        } else if selectionCount > 1 {
+            ContentUnavailableView("\(selectionCount) Containers Selected", systemImage: "square.stack",
+                                   description: Text("Right-click the selection to start, stop or delete them together."))
         } else {
             ContentUnavailableView("No Selection", systemImage: "sidebar.trailing", description: Text("Select a container to see its details and logs."))
         }
@@ -180,8 +227,10 @@ private struct ContainerOverview: View {
     @Environment(Store.self) private var store
     let container: ContainerRow
     let onDelete: (ContainerRow) -> Void
+    @ViewState<Bool> private var showValues = false
     var body: some View {
         let busy = store.isBusy(container.id)
+        let details = container.details
         Form {
             Section {
                 LabeledContent("State") { StateBadge(state: container.state, running: container.running) }
@@ -191,6 +240,9 @@ private struct ContainerOverview: View {
                     if container.portMappings.isEmpty { Text("None").foregroundStyle(.secondary) }
                     else { VStack(alignment: .trailing, spacing: 4) { PortLinks(mappings: container.portMappings, limit: 8) } }
                 }
+                if let created = details?.created { LabeledContent("Created") { Text(created, format: .relative(presentation: .named)) }.help(created.formatted()) }
+                if container.running, let started = details?.started { LabeledContent("Started") { Text(started, format: .relative(presentation: .named)) }.help(started.formatted()) }
+                if let platform = details?.platform, !platform.isEmpty { LabeledContent("Platform", value: platform) }
                 LabeledContent("ID") { Text(container.id).font(.callout.monospaced()).textSelection(.enabled) }
             }
             Section {
@@ -202,6 +254,67 @@ private struct ContainerOverview: View {
                     Button("Start") { store.start(container) }.disabled(busy)
                 }
                 Button("Delete…", role: .destructive) { onDelete(container) }.disabled(busy)
+            }
+            if let details {
+                Section("Process") {
+                    if !details.command.isEmpty { LabeledContent("Command") { Text(details.command.map(Command.quote).joined(separator: " ")).font(.callout.monospaced()).textSelection(.enabled) } }
+                    if !details.workingDirectory.isEmpty { LabeledContent("Working Directory") { Text(details.workingDirectory).font(.callout.monospaced()).textSelection(.enabled) } }
+                    if !details.user.isEmpty { LabeledContent("User") { Text(details.user).font(.callout.monospaced()) } }
+                }
+                if !details.networks.isEmpty {
+                    Section("Networks") {
+                        ForEach(details.networks, id: \.self) { network in
+                            LabeledContent(network.name) {
+                                VStack(alignment: .trailing, spacing: 2) {
+                                    Text(network.address.isEmpty ? "Not connected" : network.address).font(.callout.monospaced()).textSelection(.enabled)
+                                        .foregroundStyle(network.address.isEmpty ? .secondary : .primary)
+                                    if !network.hostname.isEmpty { Text(network.hostname).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+                                }
+                            }
+                        }
+                    }
+                }
+                if !details.mounts.isEmpty {
+                    Section("Mounts") {
+                        ForEach(details.mounts, id: \.self) { mount in
+                            LabeledContent {
+                                Text(mount.kind == "tmpfs" ? "tmpfs" : mount.source).font(.caption.monospaced()).lineLimit(2).truncationMode(.middle)
+                                    .textSelection(.enabled).help(mount.source)
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: mount.kind == "volume" ? "externaldrive" : mount.kind == "bind" ? "folder" : "memorychip")
+                                        .foregroundStyle(.secondary).accessibilityLabel(mount.kind)
+                                    Text(mount.destination).font(.callout.monospaced())
+                                    if mount.readOnly { Text("read-only").font(.caption2).foregroundStyle(.secondary) }
+                                }
+                            }
+                        }
+                    }
+                }
+                if !details.environment.isEmpty {
+                    Section {
+                        ForEach(details.environment, id: \.self) { entry in
+                            let parts = entry.split(separator: "=", maxSplits: 1).map(String.init)
+                            LabeledContent(parts.first ?? entry) {
+                                Text(showValues ? (parts.count > 1 ? parts[1] : "") : "••••••").font(.caption.monospaced())
+                                    .lineLimit(3).textSelection(.enabled)
+                            }
+                        }
+                    } header: {
+                        HStack {
+                            Text("Environment")
+                            Spacer()
+                            Button(showValues ? "Hide Values" : "Show Values") { showValues.toggle() }.buttonStyle(.borderless).font(.caption)
+                        }
+                    }
+                }
+                if !details.labels.isEmpty {
+                    Section("Labels") {
+                        ForEach(details.labels.keys.sorted(), id: \.self) { key in
+                            LabeledContent(key) { Text(details.labels[key] ?? "").font(.caption.monospaced()).textSelection(.enabled) }
+                        }
+                    }
+                }
             }
         }
         .formStyle(.grouped)

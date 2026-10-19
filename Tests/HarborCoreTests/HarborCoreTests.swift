@@ -74,6 +74,11 @@ final class HarborCoreTests {
         XCTAssertNil(command.environment["DOCKER_CONTEXT"])
         XCTAssertNil(command.environment["DOCKER_TLS_VERIFY"])
         XCTAssertEqual(command.environment["DOCKER_HOST"], "unix:///tmp/harbor socket")
+        // An import source is named by its own socket, never by an inherited context.
+        let source = config.dockerCommand(DockerImport.listArguments, socket: "/Users/me/.orbstack/run/docker.sock")
+        XCTAssertEqual(Array(source.arguments.prefix(2)), ["--host", "unix:///Users/me/.orbstack/run/docker.sock"])
+        XCTAssertEqual(source.environment["DOCKER_HOST"], "unix:///Users/me/.orbstack/run/docker.sock")
+        XCTAssertNil(source.environment["DOCKER_CONTEXT"])
     }
     func testComposePreservesOverrideOrderAndWorkingDirectory() {
         let files = ["/tmp/project with spaces/compose.yaml", "/tmp/project with spaces/dev.override.yaml"]
@@ -105,6 +110,7 @@ final class HarborCoreTests {
         let services = try JSONRows.decode(ContainerRow.self, from: service + "\n")
         XCTAssertEqual(services.map(\.name), ["harbor-smoke-web-1"]); XCTAssertTrue(services[0].running)
         XCTAssertEqual(services[0].portMappings.map(\.url?.absoluteString), ["http://127.0.0.1:18080"])
+        XCTAssertEqual(services[0].service, "web"); XCTAssertEqual(lines[0].service, "")
     }
     func testRunArgumentsKeepEnvironmentLiteral() throws {
         var options = RunOptions(image: " nginx:alpine "); options.environment = ["TOKEN=$(touch /tmp/should-never-exist)", "GREETING=hello world", "  "]
@@ -123,6 +129,121 @@ final class HarborCoreTests {
         ports.ports = ["8080"]; XCTAssertTrue(ports.problem?.contains("8080") == true)
         ports.ports = []; ports.volumes = ["data"]; XCTAssertNotNil(ports.problem)
         ports.volumes = []; ports.extraOptions = "--label 'open"; XCTAssertNotNil(ports.problem)
+    }
+    func testNativeDetailsAndStatsFrom150() throws {
+        // `container list --all --format json` as 1.5.0 prints it (keys from the upstream encoders).
+        let element = #"{"configuration":{"capAdd":[],"capDrop":[],"creationDate":"2026-10-19T08:58:41Z","id":"web","image":{"descriptor":{"digest":"sha256:5ed8","size":10229},"reference":"docker.io/library/nginx:latest"},"initProcess":{"arguments":["nginx","-g","daemon off;"],"environment":["PATH=/usr/bin","NGINX_VERSION=1.27.5"],"executable":"/docker-entrypoint.sh","rlimits":[],"supplementalGroups":[],"terminal":false,"user":{"id":{"gid":0,"uid":0}},"workingDirectory":"/"},"labels":{"com.example.role":"frontend"},"mounts":[{"destination":"/usr/share/nginx/html","options":["ro"],"source":"/Users/me/site","type":{"virtiofs":{}}},{"destination":"/data","options":[],"source":"/Users/me/Library/Application Support/com.apple.container/volumes/pgdata/volume.img","type":{"volume":{"cache":{"on":{}},"format":"ext4","name":"pgdata","sync":{"fsync":{}}}}},{"destination":"/tmp","options":["size=67108864"],"source":"tmpfs","type":{"tmpfs":{}}}],"networks":[{"network":"default","options":{"hostname":"web.test.","mtu":1280}}],"platform":{"architecture":"arm64","os":"linux","variant":"v8"},"publishedPorts":[{"containerPort":80,"count":1,"hostAddress":"0.0.0.0","hostPort":8080,"proto":"tcp"}],"publishedSockets":[],"readOnly":false,"resources":{"cpuOverhead":1,"cpus":4,"memoryInBytes":1073741824},"rosetta":false,"runtimeHandler":"container-runtime-linux","ssh":false,"sysctls":{},"useInit":false,"virtualization":false},"id":"web","status":{"networks":[{"hostname":"web.test.","ipv4Address":"192.168.64.3/24","ipv4Gateway":"192.168.64.1","macAddress":"ae:4f:12:9c:01:7d","mtu":1280,"network":"default"}],"startedDate":"2026-10-19T08:58:43Z","state":"running"}}"#
+        let row = try NativeParser.containers("[" + element + "]")[0]
+        XCTAssertTrue(row.running); XCTAssertTrue(row.status.hasSuffix("192.168.64.3"))
+        XCTAssertEqual(row.portMappings.first?.url?.absoluteString, "http://localhost:8080")
+        let d = try XCTUnwrap(row.details)
+        XCTAssertEqual(d.created, ISO8601DateFormatter().date(from: "2026-10-19T08:58:41Z"))
+        XCTAssertNotNil(d.started)
+        XCTAssertEqual(d.command, ["/docker-entrypoint.sh", "nginx", "-g", "daemon off;"])
+        XCTAssertEqual(d.user, "0:0"); XCTAssertEqual(d.workingDirectory, "/"); XCTAssertEqual(d.platform, "linux/arm64")
+        XCTAssertEqual(d.environment, ["PATH=/usr/bin", "NGINX_VERSION=1.27.5"])
+        XCTAssertEqual(d.mounts.map(\.kind), ["bind", "volume", "tmpfs"])
+        XCTAssertEqual(d.mounts[0].readOnly, true); XCTAssertEqual(d.volumeNames, ["pgdata"])
+        XCTAssertEqual(d.networks, [ContainerDetails.Network(name: "default", address: "192.168.64.3", gateway: "192.168.64.1", hostname: "web.test.")])
+        XCTAssertEqual(d.labels, ["com.example.role": "frontend"])
+        // A stopped container still names its configured networks; a raw user string is kept as typed.
+        let stopped = element.replacingOccurrences(of: #""state":"running""#, with: #""state":"stopped""#)
+            .replacingOccurrences(of: #""networks":[{"hostname":"web.test.","ipv4Address":"192.168.64.3/24","ipv4Gateway":"192.168.64.1","macAddress":"ae:4f:12:9c:01:7d","mtu":1280,"network":"default"}]"#, with: #""networks":[]"#)
+            .replacingOccurrences(of: #"{"id":{"gid":0,"uid":0}}"#, with: #"{"raw":{"userString":"nginx"}}"#)
+        let s = try XCTUnwrap(try NativeParser.containers("[" + stopped + "]")[0].details)
+        XCTAssertEqual(s.networks.map(\.name), ["default"]); XCTAssertEqual(s.networks[0].address, ""); XCTAssertEqual(s.user, "nginx")
+        // Older CLIs printed reference-date seconds.
+        XCTAssertEqual(NativeParser.date(NSNumber(value: 0)), Date(timeIntervalSinceReferenceDate: 0))
+        XCTAssertNotNil(NativeParser.date("2025-05-08T22:27:23.123Z"))
+        // Images: creation date, attestation variants left out of the size, epoch meaning "unknown".
+        let images = try NativeParser.images(#"[{"configuration":{"creationDate":"2025-05-08T22:27:23Z","descriptor":{"digest":"sha256:a856"},"name":"docker.io/library/alpine:3.20"},"id":"a856","variants":[{"platform":{"architecture":"arm64","os":"linux"},"size":4096},{"platform":{"architecture":"unknown","os":"unknown"},"size":999999}]},{"configuration":{"creationDate":"1970-01-01T00:00:00Z","descriptor":{"digest":"sha256:b"},"name":"local/app:dev"},"id":"b","variants":[]}]"#)
+        XCTAssertEqual(images[0].size, ByteCountFormatter.string(fromByteCount: 4096, countStyle: .file))
+        XCTAssertNotNil(images[0].created); XCTAssertNil(images[1].created)
+        XCTAssertTrue(ImageReference.sameImage("docker.io/library/nginx:latest", "nginx"))
+        XCTAssertTrue(ImageReference.sameImage("docker.io/team/app:1", "team/app:1"))
+        XCTAssertFalse(ImageReference.sameImage("nginx:alpine", "nginx"))
+        XCTAssertFalse(ImageReference.sameImage("ghcr.io/team/app:1", "team/app:1"))
+        // Stats: cumulative counters; the percentage comes from two samples.
+        let first = try NativeParser.stats(#"[{"blockReadBytes":4718592,"cpuUsageUsec":1000000,"id":"web","memoryLimitBytes":1073741824,"memoryUsageBytes":47431680,"networkRxBytes":1000,"networkTxBytes":500,"numProcesses":3}]"#)[0]
+        let second = try NativeParser.stats(#"[{"cpuUsageUsec":2000000,"id":"web","memoryUsageBytes":50000000,"networkRxBytes":3000}]"#)[0]
+        XCTAssertEqual(ContainerStats.cpuPercent(from: first, to: second, interval: 2), 50)
+        XCTAssertEqual(ContainerStats.rate(first.networkRxBytes, second.networkRxBytes, interval: 2), 1000)
+        XCTAssertNil(ContainerStats.rate(first.networkTxBytes, second.networkTxBytes, interval: 2))
+        XCTAssertEqual(try NativeParser.stats("[]\n").count, 0)
+    }
+    func testRunFormOptionalFlags() throws {
+        var options = RunOptions(image: "nginx:alpine")
+        options.network = "dev-net"; options.removeWhenStopped = true; options.architecture = "amd64"
+        options.workingDirectory = "/app"; options.entrypoint = "/bin/sh"; options.user = "1000:1000"
+        options.labels = ["team=web", " "]; options.useInit = true; options.readOnly = true
+        let args = try options.arguments()
+        func value(after flag: String) -> String? { zip(args, args.dropFirst()).first { $0.0 == flag }?.1 }
+        XCTAssertEqual(value(after: "--network"), "dev-net"); XCTAssertEqual(value(after: "--arch"), "amd64")
+        XCTAssertEqual(value(after: "--workdir"), "/app"); XCTAssertEqual(value(after: "--entrypoint"), "/bin/sh")
+        XCTAssertEqual(value(after: "--user"), "1000:1000"); XCTAssertEqual(value(after: "--label"), "team=web")
+        XCTAssertTrue(args.contains("--rm") && args.contains("--init") && args.contains("--read-only"))
+        XCTAssertEqual(args.last, "nginx:alpine")
+        // Every optional flag the form emits is one it gates on the local help.
+        XCTAssertTrue(args.filter { $0.hasPrefix("--") }.allSatisfy { ["--detach", "--cpus", "--memory", "--name"].contains($0) || RunOptions.optionalFlags.contains($0) })
+        XCTAssertFalse(try RunOptions(image: "nginx").arguments().contains("--rm"))
+        options.workingDirectory = "app"; XCTAssertNotNil(options.problem); options.workingDirectory = ""
+        options.entrypoint = "--privileged"; XCTAssertNotNil(options.problem); options.entrypoint = ""
+        options.user = "root user"; XCTAssertNotNil(options.problem); options.user = ""
+        options.network = "a b"; XCTAssertNotNil(options.problem); options.network = ""
+        options.architecture = "riscv"; XCTAssertNotNil(options.problem); options.architecture = ""
+        options.labels = ["novalue"]; XCTAssertNotNil(options.problem)
+    }
+    func testBuildNetworkAndVolumeForms() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("harbor-build-\(UUID().uuidString)").path
+        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: folder) }
+        let dockerfile = folder + "/Dockerfile.dev"
+        _ = FileManager.default.createFile(atPath: dockerfile, contents: Data("FROM scratch\n".utf8))
+        var build = BuildOptions(dropped: dockerfile)
+        XCTAssertEqual(build.context, folder); XCTAssertEqual(build.dockerfile, dockerfile)
+        XCTAssertTrue(build.problem?.contains("tag") == true)
+        build.tags = ["local/app:dev", ""]; build.buildArgs = ["VERSION=1 2"]; build.target = "prod"; build.platform = "linux/amd64"; build.noCache = true
+        XCTAssertEqual(try build.arguments(), ["build", "--progress", "plain", "--tag", "local/app:dev", "--file", dockerfile, "--build-arg", "VERSION=1 2",
+                                               "--target", "prod", "--platform", "linux/amd64", "--no-cache", folder])
+        XCTAssertEqual(BuildOptions(dropped: folder).context, folder); XCTAssertEqual(BuildOptions(dropped: folder).dockerfile, "")
+        build.context = "relative"; XCTAssertNotNil(build.problem)
+        var network = NetworkOptions(); network.name = "dev-net"; network.subnet = "192.168.100.0/24"; network.hostOnly = true
+        XCTAssertEqual(try network.arguments(), ["network", "create", "--internal", "--subnet", "192.168.100.0/24", "dev-net"])
+        network.subnet = "192.168.100.0"; XCTAssertNotNil(network.problem)
+        network.subnet = ""; network.name = "-x"; XCTAssertThrowsError(try network.arguments())
+        var volume = VolumeOptions(); volume.name = "app-data"; volume.size = "10g"; volume.labels = ["tier=db"]
+        XCTAssertEqual(try volume.arguments(), ["volume", "create", "-s", "10g", "--label", "tier=db", "app-data"])
+        volume.size = "ten"; XCTAssertNotNil(volume.problem)
+    }
+    func testComposeActionsTargetServices() {
+        XCTAssertEqual(ComposeAction.restart.arguments(service: "web"), ["restart", "web"])
+        XCTAssertEqual(ComposeAction.start.arguments(service: "web"), ["up", "--detach", "web"])
+        XCTAssertEqual(ComposeAction.logs.arguments(service: "db"), ["logs", "--no-color", "--tail", "300", "db"])
+        XCTAssertEqual(ComposeAction.down.arguments(service: "web"), ["down"])
+        XCTAssertEqual(ComposeAction.downWithVolumes.arguments, ["down", "--volumes"])
+        XCTAssertEqual(ComposeAction.pull.arguments(service: ""), ["pull"])
+        XCTAssertTrue(ComposeAction.down.destructive && ComposeAction.downWithVolumes.destructive && !ComposeAction.stop.destructive)
+    }
+    func testContainerFilesAndDockerImport() throws {
+        XCTAssertEqual(ContainerFiles.parse("./\n../\nbin/\n.env\nApp.log\napp/\nmy file.txt\n").map(\.name), ["app", "bin", ".env", "App.log", "my file.txt"])
+        XCTAssertEqual(ContainerFiles.parse("etc/\n").first?.isDirectory, true)
+        XCTAssertEqual(ContainerFiles.listArguments(container: "web", path: "/etc"), ["exec", "web", "ls", "-1Ap", "/etc"])
+        XCTAssertEqual(ContainerFiles.normalize("/var//log/../lib/./x/"), "/var/lib/x")
+        XCTAssertEqual(ContainerFiles.normalize("/.."), "/"); XCTAssertNil(ContainerFiles.normalize("etc"))
+        XCTAssertEqual(ContainerFiles.join("/", "etc"), "/etc"); XCTAssertEqual(ContainerFiles.join("/etc", "hosts"), "/etc/hosts")
+        XCTAssertEqual(ContainerFiles.parent(of: "/etc/nginx"), "/etc"); XCTAssertEqual(ContainerFiles.parent(of: "/etc"), "/"); XCTAssertEqual(ContainerFiles.parent(of: "/"), "/")
+        XCTAssertEqual(try ContainerFiles.downloadArguments(container: "web", path: "/etc/hosts", to: "/Users/me/Downloads"), ["copy", "web:/etc/hosts", "/Users/me/Downloads"])
+        XCTAssertEqual(try ContainerFiles.uploadArguments("/Users/me/a.txt", container: "web", folder: "/tmp"), ["copy", "/Users/me/a.txt", "web:/tmp/"])
+        XCTAssertEqual(try ContainerFiles.uploadArguments("/Users/me/a.txt", container: "web", folder: "/"), ["copy", "/Users/me/a.txt", "web:/"])
+        XCTAssertThrowsError(try ContainerFiles.uploadArguments("/Users/me/a:b.txt", container: "web", folder: "/tmp"))
+        // `docker image ls --format json` as printed by Docker 29: one object per line.
+        let listing = #"{"Containers":"0","CreatedSince":"2 days ago","ID":"04b28d4aff67","Repository":"swift","Size":"4.48GB","Tag":"6.1-noble"}"# + "\n" +
+            #"{"Containers":"0","ID":"aaaa","Repository":"<none>","Size":"1MB","Tag":"<none>"}"#
+        let images = try DockerImport.images(listing)
+        XCTAssertEqual(images.map(\.reference), ["swift:6.1-noble"]); XCTAssertEqual(images[0].size, "4.48GB")
+        XCTAssertEqual(DockerImport.saveArguments("swift:6.1-noble", to: "/tmp/x.tar"), ["image", "save", "--output", "/tmp/x.tar", "swift:6.1-noble"])
+        XCTAssertEqual(DockerImport.loadArguments("/tmp/x.tar"), ["image", "load", "--input", "/tmp/x.tar"])
+        XCTAssertEqual(DockerImport.candidates(home: "/Users/me").first?.socket, "/Users/me/.orbstack/run/docker.sock")
     }
     func testTextTablesAndResourceHelpers() {
         let table = TextTable.parse("NETWORK  STATE    SUBNET\ndefault  running  192.168.64.0/24\ndev-net  stopped\n")
@@ -227,6 +348,7 @@ func XCTAssertTrue(_ value: Bool) { precondition(value) }
 func XCTAssertFalse(_ value: Bool) { precondition(!value) }
 func XCTAssertNil<T>(_ value: T?) { precondition(value == nil) }
 func XCTAssertNotNil<T>(_ value: T?) { precondition(value != nil) }
+func XCTUnwrap<T>(_ value: T?) throws -> T { guard let value else { throw HarborError.message("Unexpected nil") }; return value }
 func XCTAssertEqual<T: Equatable>(_ a: T, _ b: T) { precondition(a == b, "Values differ") }
 func XCTAssertGreaterThan<T: Comparable>(_ a: T, _ b: T) { precondition(a > b) }
 func XCTAssertLessThan<T: Comparable>(_ a: T, _ b: T) { precondition(a < b) }
@@ -248,6 +370,11 @@ func XCTAssertThrowsError<T>(_ expression: @autoclosure () throws -> T) {
         suite.testComposeDirectoryFollowsFileOrder()
         try suite.testDockerJSONLinesAndArray()
         try suite.testRunArgumentsKeepEnvironmentLiteral()
+        try suite.testNativeDetailsAndStatsFrom150()
+        try suite.testRunFormOptionalFlags()
+        try suite.testBuildNetworkAndVolumeForms()
+        suite.testComposeActionsTargetServices()
+        try suite.testContainerFilesAndDockerImport()
         suite.testTextTablesAndResourceHelpers()
         try await suite.testShellQuoteRoundTrip()
         suite.testInstallerPackageComesFromOfficialReleases()

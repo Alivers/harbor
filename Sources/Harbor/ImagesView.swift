@@ -6,6 +6,8 @@ struct ImagesView: View {
     @ViewState<String> private var search = ""
     @ViewState<Set<String>> private var selection: Set<String> = []
     @ViewState<[ImageRow]> private var pendingDelete: [ImageRow] = []
+    @ViewState<Bool?> private var pendingPrune: Bool?
+    @ViewState<ImageRow?> private var pendingPush: ImageRow?
 
     private var rows: [ImageRow] { search.isEmpty ? store.images : store.images.filter { $0.reference.localizedCaseInsensitiveContains(search) } }
 
@@ -19,12 +21,39 @@ struct ImagesView: View {
                     Button { store.present(.pull) } label: { Label("Pull Image", systemImage: "arrow.down.circle") }
                         .disabled(!store.engine.isRunning).help("Pull an image (⇧⌘P)")
                 }
-                ToolbarItem(placement: .primaryAction) { NativeActionsMenu(group: "Images") }
+                ToolbarItem(placement: .primaryAction) {
+                    Button { store.present(.build(BuildOptions())) } label: { Label("Build Image", systemImage: "hammer") }
+                        .disabled(!store.engine.isRunning).help("Build an image from a Dockerfile (⇧⌘B)")
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        Button("Import from Docker…") { store.present(.importImages) }
+                        Button("Load Archive…") { store.loadImages() }
+                        Divider()
+                        Button("Remove Dangling Images…") { pendingPrune = false }
+                        Button("Remove All Unused Images…") { pendingPrune = true }
+                        Divider()
+                        NativeActionsMenu(group: "Images")
+                    } label: { Label("More", systemImage: "ellipsis.circle") }
+                    .disabled(!store.engine.isRunning)
+                    .help("Import, load and clean up images")
+                }
             }
             .confirmationDialog(pendingDelete.count == 1 ? "Delete “\(pendingDelete[0].reference)”?" : "Delete \(pendingDelete.count) images?",
                                 isPresented: Binding(get: { !pendingDelete.isEmpty }, set: { if !$0 { pendingDelete = [] } }), titleVisibility: .visible) {
                 Button("Delete", role: .destructive) { pendingDelete.forEach { store.delete($0) } }
             } message: { Text("Containers that still use an image keep it from being deleted.") }
+            .confirmationDialog(pendingPrune == true ? "Remove all unused images?" : "Remove dangling images?",
+                                isPresented: Binding(get: { pendingPrune != nil }, set: { if !$0 { pendingPrune = nil } }), titleVisibility: .visible,
+                                presenting: pendingPrune) { all in
+                Button("Remove", role: .destructive) { store.pruneImages(all: all) }
+            } message: { all in
+                Text(all ? "Every image no container uses is deleted, including ones you pulled but have not run yet." : "Untagged images left behind by builds and pulls are deleted.")
+            }
+            .confirmationDialog("Push “\(pendingPush?.reference ?? "")”?", isPresented: Binding(get: { pendingPush != nil }, set: { if !$0 { pendingPush = nil } }),
+                                titleVisibility: .visible, presenting: pendingPush) { image in
+                Button("Push") { store.push(image) }
+            } message: { image in Text("Uploads the image to \(image.repository.split(separator: "/").first.map(String.init) ?? "the registry"). Log in to the registry first if it needs credentials.") }
     }
 
     @ViewBuilder private var content: some View {
@@ -48,9 +77,14 @@ struct ImagesView: View {
                 let chosen = store.images.filter { ids.contains($0.id) }
                 if chosen.count == 1, let image = chosen.first {
                     Button("Run Container…") { store.present(.run(RunOptions(image: image.reference))) }
+                    Divider()
+                    Button("Tag…") { store.present(.tag(image)) }
+                    Button("Push…") { pendingPush = image }
                     Button("Copy Reference") { store.copy(image.reference) }
                     Divider()
                 }
+                Button(chosen.count > 1 ? "Save \(chosen.count) Images…" : "Save as Archive…") { store.save(chosen) }.disabled(chosen.isEmpty)
+                Divider()
                 Button(chosen.count > 1 ? "Delete \(chosen.count) Images…" : "Delete…", role: .destructive) { pendingDelete = chosen }
                     .disabled(chosen.isEmpty)
             } primaryAction: { ids in
@@ -76,9 +110,21 @@ private struct ImageListRow: View {
                         .padding(.horizontal, 6).padding(.vertical, 1)
                         .background(Color.secondary.opacity(0.12), in: .capsule)
                 }
-                Text(String(image.digest.prefix(19))).font(.caption.monospaced()).foregroundStyle(.tertiary).lineLimit(1)
+                HStack(spacing: 8) {
+                    Text(String(image.digest.prefix(19))).font(.caption.monospaced()).foregroundStyle(.tertiary).lineLimit(1)
+                    if let created = image.created {
+                        Text("Created \(created, format: .relative(presentation: .named))").font(.caption).foregroundStyle(.tertiary).help(created.formatted())
+                    }
+                }
             }
             Spacer(minLength: 12)
+            let users = store.containers.filter { ImageReference.sameImage($0.image, image.reference) }
+            if !users.isEmpty {
+                Text(users.count == 1 ? "In use" : "Used by \(users.count)").font(.caption.weight(.medium)).foregroundStyle(Color.harbor)
+                    .padding(.horizontal, 7).padding(.vertical, 2)
+                    .background(Color.harbor.opacity(0.12), in: .capsule)
+                    .help(users.map(\.name).joined(separator: ", "))
+            }
             Text(image.size).font(.callout.monospacedDigit()).foregroundStyle(.secondary)
             Group {
                 if busy { ProgressView().controlSize(.small) }

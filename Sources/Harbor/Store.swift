@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
+import UserNotifications
 import HarborCore
 
 /// What Harbor knows about the native engine.
@@ -21,12 +22,25 @@ struct NativeRequest: Identifiable {
 /// The window's one sheet; `Store.present` swaps sheets without overlapping them.
 enum SheetRoute: Identifiable {
     case run(RunOptions), pull, operation(NativeRequest), output(Job)
+    case build(BuildOptions), tag(ImageRow), createNetwork, createVolume, importImages
     var id: String { switch self {
     case .run: "run"
     case .pull: "pull"
     case .operation(let request): "operation " + request.id
     case .output(let job): "output " + job.id.uuidString
+    case .build: "build"
+    case .tag(let image): "tag " + image.reference
+    case .createNetwork: "network"
+    case .createVolume: "volume"
+    case .importImages: "import"
     } }
+}
+
+/// Preferences shared by the settings window, the menu bar extra and the store.
+enum Preference {
+    static let menuBarExtra = "showMenuBarExtra"
+    static let notifications = "notifyWhenInactive"
+    static func enabled(_ key: String) -> Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
 }
 
 /// One user-triggered command (or short sequence of commands) and its output.
@@ -65,7 +79,11 @@ enum SheetRoute: Identifiable {
     /// The finished job the activity capsule reports.
     var banner: Job?
     var sheet: SheetRoute?
+    /// A page another part of the app wants the window to show, such as Compose after a dropped file.
+    var requestedPage: Page?
     @ObservationIgnored private var refreshing = false
+    @ObservationIgnored private var pollTask: Task<Void, Never>?
+    @ObservationIgnored private var lastBackgroundRead = Date.distantPast
     @ObservationIgnored private var refreshQueued = false
     @ObservationIgnored private var helpCache: [String: String] = [:]
     @ObservationIgnored private var bridge: Process?
@@ -84,6 +102,8 @@ enum SheetRoute: Identifiable {
         terminationObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { [weak self] _ in
             MainActor.assumeIsolated { self?.jobs.forEach { $0.cancel() }; self?.stopOwnedBridge() }
         }
+        // The store outlives the window (the menu bar extra keeps showing state), so it owns the polling.
+        pollTask = Task { [weak self] in await self?.poll() }
     }
     func save() {
         UserDefaults.standard.set(try? JSONEncoder().encode(config), forKey: "runtime")
@@ -98,10 +118,14 @@ enum SheetRoute: Identifiable {
 
     // MARK: Native state
 
-    /// Polls while Harbor is the active app; the root view owns this task.
-    func poll() async {
+    /// Reads state every 6 s while Harbor is the active app. In the background it reads only for the menu
+    /// bar extra, and only every 30 s; otherwise it waits until Harbor is active again.
+    private func poll() async {
         while !Task.isCancelled {
             if NSApplication.shared.isActive { await refresh() }
+            else if Preference.enabled(Preference.menuBarExtra), Date().timeIntervalSince(lastBackgroundRead) >= 30 {
+                lastBackgroundRead = Date(); await refresh()
+            }
             try? await Task.sleep(for: .seconds(6))
         }
     }
@@ -196,6 +220,7 @@ enum SheetRoute: Identifiable {
     }
     private func finished(_ job: Job, showOutput: Bool) {
         changeCount += 1
+        notifyIfInactive(job)
         switch job.status {
         case .failed: banner = job
         case .succeeded where !(showOutput && isShowing(job)):
@@ -205,6 +230,21 @@ enum SheetRoute: Identifiable {
         }
     }
     func clearFinishedJobs() { jobs.removeAll { !$0.isRunning }; banner = nil }
+    /// A job that ends while Harbor is in the background posts a notification, if it failed or took a while.
+    private func notifyIfInactive(_ job: Job) {
+        guard !NSApplication.shared.isActive, Preference.enabled(Preference.notifications), job.status != .canceled,
+              job.status == .failed || Date().timeIntervalSince(job.started) >= 5 else { return }
+        let content = UNMutableNotificationContent()
+        content.title = job.status == .failed ? "\(job.title) failed" : "\(job.title) finished"
+        content.body = job.output.split(whereSeparator: \.isNewline).last.map(String.init) ?? ""
+        let request = UNNotificationRequest(identifier: job.id.uuidString, content: content, trigger: nil)
+        Task {
+            // macOS asks once; after that this returns the person's choice.
+            let center = UNUserNotificationCenter.current()
+            guard (try? await center.requestAuthorization(options: [.alert, .sound])) == true else { return }
+            try? await center.add(request)
+        }
+    }
 
     // MARK: Sheets
 
@@ -246,6 +286,113 @@ enum SheetRoute: Identifiable {
     }
     func pull(_ reference: String) { perform("Pull \(reference)", command: config.nativeCommand(["image", "pull", reference]), subject: "image " + reference, timeout: 1800) }
     func delete(_ image: ImageRow) { perform("Delete \(image.reference)", command: config.nativeCommand(["image", "delete", image.reference]), subject: "image " + image.reference) }
+    func build(_ options: BuildOptions) throws {
+        let arguments = try options.arguments()
+        perform("Build \(BuildOptions.entries(options.tags).first ?? "image")", command: config.nativeCommand(arguments), subject: "build " + options.context, timeout: 3600)
+    }
+    func tag(_ image: ImageRow, as target: String) {
+        perform("Tag \(target)", command: config.nativeCommand(["image", "tag", image.reference, target]), subject: "image " + target)
+    }
+    func push(_ image: ImageRow) {
+        perform("Push \(image.reference)", command: config.nativeCommand(["image", "push", "--progress", "plain", image.reference]), subject: "image " + image.reference, timeout: 3600)
+    }
+    func save(_ images: [ImageRow]) {
+        let panel = NSSavePanel(); panel.title = "Save Images as Archive"
+        panel.nameFieldStringValue = (images.count == 1 ? images[0].repository.split(separator: "/").last.map(String.init) ?? "image" : "images") + ".tar"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        perform("Save \(images.count == 1 ? images[0].reference : "\(images.count) images")",
+                command: config.nativeCommand(["image", "save", "--output", url.path] + images.map(\.reference)), timeout: 3600)
+    }
+    func loadImages() {
+        let panel = NSOpenPanel(); panel.title = "Load Image Archives"; panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = [.tarArchive, .gzip, .data]
+        guard panel.runModal() == .OK else { return }
+        panel.urls.forEach { loadImages(from: $0) }
+    }
+    func loadImages(from archive: URL) {
+        perform("Load \(archive.lastPathComponent)", command: config.nativeCommand(DockerImport.loadArguments(archive.path)), timeout: 3600)
+    }
+    func pruneImages(all: Bool) {
+        perform(all ? "Remove unused images" : "Remove dangling images", command: config.nativeCommand(["image", "prune"] + (all ? ["--all"] : [])), showOutput: true, timeout: 600)
+    }
+    func createNetwork(_ options: NetworkOptions) throws {
+        perform("Create network \(options.name)", command: config.nativeCommand(try options.arguments()), subject: "network " + options.name)
+    }
+    func createVolume(_ options: VolumeOptions) throws {
+        perform("Create volume \(options.name)", command: config.nativeCommand(try options.arguments()), subject: "volume " + options.name)
+    }
+    /// Names from a `--quiet` listing (`network list -q`, `volume list -q`); empty when the read fails.
+    func names(_ listing: [String]) async -> [String] {
+        guard let text = try? await read(listing + ["--quiet"], timeout: 10) else { return [] }
+        return text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    // MARK: Container files
+
+    func download(_ path: String, from container: ContainerRow) {
+        let panel = NSOpenPanel(); panel.title = "Choose Where to Save \(URL(fileURLWithPath: path).lastPathComponent)"
+        panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.canCreateDirectories = true; panel.prompt = "Save Here"
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        do {
+            let arguments = try ContainerFiles.downloadArguments(container: container.id, path: path, to: folder.path)
+            perform("Copy \(URL(fileURLWithPath: path).lastPathComponent) from \(container.name)", command: config.nativeCommand(arguments), timeout: 1800)
+        } catch { report("Copy from \(container.name)", error) }
+    }
+    func upload(_ files: [URL], to folder: String, in container: ContainerRow) {
+        for file in files {
+            do {
+                let arguments = try ContainerFiles.uploadArguments(file.path, container: container.id, folder: folder)
+                perform("Copy \(file.lastPathComponent) to \(container.name)", command: config.nativeCommand(arguments), timeout: 1800)
+            } catch { report("Copy to \(container.name)", error) }
+        }
+    }
+    /// A failure found before anything ran, shown like any other failed job.
+    func report(_ title: String, _ error: Error) {
+        run(title) { _ in throw error }
+    }
+
+    // MARK: Importing images from another Docker engine
+
+    func dockerImages(at source: DockerImport.Source) async throws -> [DockerImport.Image] {
+        guard FileManager.default.isExecutableFile(atPath: config.docker) else {
+            throw HarborError.message("The Docker CLI is needed to read the other engine. Install it with brew install docker, or set its path in Settings.")
+        }
+        return try DockerImport.images(try await Runner.checked(config.dockerCommand(DockerImport.listArguments, socket: source.socket), timeout: 20))
+    }
+    /// Each image is saved from the source engine to a temporary archive, loaded, and the archive deleted.
+    func importImages(_ images: [DockerImport.Image], from source: DockerImport.Source) {
+        let snapshot = config
+        for image in images {
+            run("Import \(image.reference) from \(source.name)", subject: "image " + image.reference) { [self] job in
+                let archive = FileManager.default.temporaryDirectory.appendingPathComponent("harbor-import-\(UUID().uuidString).tar").path
+                defer { try? FileManager.default.removeItem(atPath: archive) }
+                job.note("Saving from \(source.name)…")
+                try await stream(snapshot.dockerCommand(DockerImport.saveArguments(image.reference, to: archive), socket: source.socket), into: job, timeout: 3600)
+                job.note("Loading into Apple Container…")
+                try await stream(snapshot.nativeCommand(DockerImport.loadArguments(archive)), into: job, timeout: 3600)
+            }
+        }
+    }
+
+    // MARK: Dropped files
+
+    /// Routes files dropped on the window: Compose files become a project, image archives are loaded,
+    /// and a build context or Dockerfile opens the Build Image form. Returns false when nothing matched.
+    func open(_ urls: [URL]) -> Bool {
+        let compose = urls.filter { ["yaml", "yml"].contains($0.pathExtension.lowercased()) }
+        let archives = urls.filter { ["tar", "gz", "tgz"].contains($0.pathExtension.lowercased()) }
+        let builds = urls.filter { url in
+            var isDirectory: ObjCBool = false
+            _ = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            let name = url.lastPathComponent.lowercased()
+            return isDirectory.boolValue || name.hasPrefix("dockerfile") || name.hasPrefix("containerfile") || name.hasSuffix(".dockerfile")
+        }
+        if !compose.isEmpty { addProject(compose.map(\.path)); requestedPage = .compose }
+        archives.forEach { loadImages(from: $0) }
+        if !archives.isEmpty { requestedPage = .images }
+        if let first = builds.first { present(.build(BuildOptions(dropped: first.path))) }
+        return !(compose.isEmpty && archives.isEmpty && builds.isEmpty)
+    }
 
     // MARK: Optional Docker compatibility
 
@@ -347,7 +494,9 @@ enum SheetRoute: Identifiable {
         panel.canChooseDirectories = false; panel.allowsMultipleSelection = true
         panel.allowedContentTypes = [.yaml]
         guard panel.runModal() == .OK else { return }
-        let files = panel.urls.map(\.path)
+        addProject(panel.urls.map(\.path))
+    }
+    func addProject(_ files: [String]) {
         guard !files.isEmpty, !projects.contains(where: { $0.files == files }) else { return }
         projects.append(ComposeProject(files: files)); save()
         Task { await refreshServices() }
@@ -358,16 +507,18 @@ enum SheetRoute: Identifiable {
         guard let p = projects.firstIndex(where: { $0.id == project.id }), projects[p].files.indices.contains(index + offset) else { return }
         projects[p].files.swapAt(index, index + offset); save()
     }
-    func compose(_ project: ComposeProject, _ action: ComposeAction) {
+    /// Runs a Compose action on the whole project, or on one service when `service` is given.
+    func compose(_ project: ComposeProject, _ action: ComposeAction, service: String? = nil) {
         let snapshot = config
-        run("\(project.name): \(action.rawValue)", subject: project.id.uuidString, showOutput: action.showsOutput) { [self] job in
+        let scope = service.map { "\(project.name)/\($0)" } ?? project.name
+        run("\(scope): \(action.rawValue)", subject: project.id.uuidString, showOutput: action.showsOutput) { [self] job in
             if action == .start {
                 // Fail fast on a broken file before anything is pulled or created.
                 job.note("Validating Compose configuration…")
                 _ = try await Runner.checked(snapshot.composeCommand(project, ComposeAction.validate.arguments), timeout: 30)
                 job.note("Configuration is valid. Starting; the first image pull can take a few minutes…")
             }
-            try await stream(snapshot.composeCommand(project, action.arguments), into: job, timeout: 1200)
+            try await stream(snapshot.composeCommand(project, action.arguments(service: service)), into: job, timeout: 1200)
         }
     }
     func refreshServices() async {

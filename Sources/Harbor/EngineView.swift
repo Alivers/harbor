@@ -228,33 +228,43 @@ struct EngineView: View {
 struct SettingsView: View {
     @Environment(Store.self) private var store
     @ViewState<RuntimeConfig?> private var draft: RuntimeConfig?
+    @AppStorage(Preference.menuBarExtra) private var showMenuBarExtra = true
+    @AppStorage(Preference.notifications) private var notify = true
     var body: some View {
         let edited = Binding(get: { draft ?? store.config }, set: { draft = $0 })
         Form {
             Section {
-                PathField(title: "container CLI", path: edited.container)
-            } header: { Text("Apple Container") } footer: { Text("Every native action runs this executable directly, never through a shell.") }
-            Section {
-                PathField(title: "Docker CLI", path: edited.docker)
-                PathField(title: "Socktainer", path: edited.socktainer)
-                TextField("Socket", text: edited.socket).font(.callout.monospaced())
-            } header: { Text("Docker and Compose (optional)") } footer: {
-                Text("Docker commands always use this socket explicitly, and inherited Docker context variables are cleared.")
+                Toggle("Show Harbor in the menu bar", isOn: $showMenuBarExtra)
+                Toggle("Notify when a job finishes in the background", isOn: $notify)
+            } header: { Text("General") } footer: {
+                Text("The menu bar shows the engine and running containers even when the window is closed. Notifications cover jobs that fail or take longer than a few seconds.")
             }
-            Section {
-                HStack {
-                    Button("Detect Automatically") { draft = RuntimeConfig(socket: edited.wrappedValue.socket) }
-                    Spacer()
-                    Button("Apply", action: apply).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-                        .disabled(draft == nil || draft == store.config)
+            Group {
+                Section {
+                    PathField(title: "container CLI", path: edited.container)
+                } header: { Text("Apple Container") } footer: { Text("Every native action runs this executable directly, never through a shell.") }
+                Section {
+                    PathField(title: "Docker CLI", path: edited.docker)
+                    PathField(title: "Socktainer", path: edited.socktainer)
+                    TextField("Socket", text: edited.socket).font(.callout.monospaced())
+                } header: { Text("Docker and Compose (optional)") } footer: {
+                    Text("Docker commands always use this socket explicitly, and inherited Docker context variables are cleared.")
                 }
-            } footer: {
-                if store.bridgeOwned { Text("Stop the compatibility service before changing paths.") }
+                Section {
+                    HStack {
+                        Button("Detect Automatically") { draft = RuntimeConfig(socket: edited.wrappedValue.socket) }
+                        Spacer()
+                        Button("Apply", action: apply).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                            .disabled(draft == nil || draft == store.config)
+                    }
+                } footer: {
+                    if store.bridgeOwned { Text("Stop the compatibility service before changing paths.") }
+                }
             }
+            .disabled(store.bridgeOwned)
         }
         .formStyle(.grouped)
-        .disabled(store.bridgeOwned)
-        .frame(width: 560, height: 480)
+        .frame(width: 560, height: 600)
         .onDisappear(perform: apply)
     }
     private func apply() {

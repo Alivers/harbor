@@ -162,7 +162,8 @@ public struct RuntimeConfig: Codable, Equatable, Sendable {
         env["PATH"] = searchPath
         return env
     }
-    public var environment: [String: String] {
+    public var environment: [String: String] { environment(socket: socket) }
+    func environment(socket: String) -> [String: String] {
         var env = ProcessInfo.processInfo.environment
         // An inherited context/TLS setting must never redirect a Harbor command to OrbStack.
         for key in ["DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH", "DOCKER_API_VERSION", "COMPOSE_FILE", "COMPOSE_PROJECT_NAME", "COMPOSE_PROFILES"] { env.removeValue(forKey: key) }
@@ -173,6 +174,10 @@ public struct RuntimeConfig: Codable, Equatable, Sendable {
     }
     public func dockerCommand(_ args: [String], directory: String? = nil) -> Command {
         Command(docker, ["--host", "unix://" + socket] + args, directory: directory, environment: environment)
+    }
+    /// A Docker command against another engine (an import source), named by its socket just as explicitly.
+    public func dockerCommand(_ args: [String], socket other: String) -> Command {
+        Command(docker, ["--host", "unix://" + other] + args, environment: environment(socket: other))
     }
     public func nativeCommand(_ args: [String]) -> Command { Command(container, args, environment: Self.toolEnvironment) }
     public func composeCommand(_ project: ComposeProject, _ args: [String]) -> Command {

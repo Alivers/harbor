@@ -96,6 +96,7 @@ private struct ProjectCard: View {
     let project: ComposeProject
     @ViewState<Bool> private var showFiles = false
     @ViewState<Bool> private var confirmRemove = false
+    @ViewState<ComposeAction?> private var pendingAction: ComposeAction?
     var body: some View {
         let busy = store.isBusy(project.id.uuidString)
         VStack(alignment: .leading, spacing: 12) {
@@ -112,9 +113,16 @@ private struct ProjectCard: View {
                 Button { store.compose(project, .stop) } label: { Label("Stop", systemImage: "stop.fill") }
                     .disabled(busy || !store.dockerConnected)
                 Menu {
-                    ForEach([ComposeAction.logs, .status, .build, .validate]) { action in
+                    ForEach([ComposeAction.restart, .pull, .build]) { action in
+                        Button(action.rawValue) { store.compose(project, action) }.disabled(busy || !store.dockerConnected)
+                    }
+                    Divider()
+                    ForEach([ComposeAction.logs, .status, .validate]) { action in
                         Button(action.rawValue) { store.compose(project, action) }.disabled(busy || (action.needsDocker && !store.dockerConnected))
                     }
+                    Divider()
+                    Button("Down…") { pendingAction = .down }.disabled(busy || !store.dockerConnected)
+                    Button("Down and Delete Volumes…", role: .destructive) { pendingAction = .downWithVolumes }.disabled(busy || !store.dockerConnected)
                     Divider()
                     Button("Reveal in Finder") { store.reveal(project.files[0]) }
                     Button("Copy Up Command") { store.copy(store.config.composeCommand(project, ComposeAction.start.arguments).display) }
@@ -122,8 +130,9 @@ private struct ProjectCard: View {
                     Button("Remove from Harbor…", role: .destructive) { confirmRemove = true }
                 } label: { Image(systemName: "ellipsis.circle") }
                 .menuStyle(.button).buttonStyle(.borderless).menuIndicator(.hidden).fixedSize()
+                .accessibilityLabel("More actions for \(project.name)")
             }
-            if store.dockerConnected { services }
+            if store.dockerConnected { services(busy: busy) }
             DisclosureGroup("Files (\(project.files.count))", isExpanded: $showFiles) {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(Array(project.files.enumerated()), id: \.offset) { index, file in
@@ -132,7 +141,9 @@ private struct ProjectCard: View {
                             Text(URL(fileURLWithPath: file).lastPathComponent).font(.callout.monospaced()).help(file)
                             Spacer()
                             Button { store.moveFile(project, from: index, by: -1) } label: { Image(systemName: "arrow.up") }.disabled(index == 0)
+                                .accessibilityLabel("Move up")
                             Button { store.moveFile(project, from: index, by: 1) } label: { Image(systemName: "arrow.down") }.disabled(index == project.files.count - 1)
+                                .accessibilityLabel("Move down")
                         }
                         .buttonStyle(.borderless)
                     }
@@ -145,8 +156,17 @@ private struct ProjectCard: View {
         .confirmationDialog("Remove “\(project.name)” from Harbor?", isPresented: $confirmRemove, titleVisibility: .visible) {
             Button("Remove", role: .destructive) { store.removeProject(project) }
         } message: { Text("Only Harbor's record is removed. Files, containers and volumes stay as they are.") }
+        .confirmationDialog(pendingAction == .downWithVolumes ? "Take down “\(project.name)” and delete its volumes?" : "Take down “\(project.name)”?",
+                            isPresented: Binding(get: { pendingAction != nil }, set: { if !$0 { pendingAction = nil } }), titleVisibility: .visible,
+                            presenting: pendingAction) { action in
+            Button(action == .downWithVolumes ? "Down and Delete Volumes" : "Down", role: .destructive) { store.compose(project, action) }
+        } message: { action in
+            Text(action == .downWithVolumes
+                 ? "Containers and networks are removed, and so is the data in the project's named volumes. This cannot be undone."
+                 : "Containers and networks are removed. Named volumes and images are kept, so Up brings the project back with its data.")
+        }
     }
-    @ViewBuilder private var services: some View {
+    @ViewBuilder private func services(busy: Bool) -> some View {
         switch store.services[project.id] {
         case .success(let rows)?:
             if rows.isEmpty {
@@ -156,10 +176,11 @@ private struct ProjectCard: View {
                     ForEach(rows) { c in
                         HStack(spacing: 8) {
                             Circle().fill(c.running ? Color.harbor : .secondary).frame(width: 7, height: 7)
-                            Text(c.name).font(.callout.monospaced()).lineLimit(1)
+                            Text(c.service.isEmpty ? c.name : c.service).font(.callout.monospaced()).lineLimit(1).help(c.name)
                             Text(c.status).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                             Spacer()
                             PortLinks(mappings: c.portMappings)
+                            if !c.service.isEmpty { serviceMenu(c, busy: busy) }
                         }
                     }
                 }
@@ -170,5 +191,23 @@ private struct ProjectCard: View {
         case nil:
             EmptyView()
         }
+    }
+    private func serviceMenu(_ c: ContainerRow, busy: Bool) -> some View {
+        Menu {
+            if c.running {
+                Button("Stop") { store.compose(project, .stop, service: c.service) }
+                Button("Restart") { store.compose(project, .restart, service: c.service) }
+            } else {
+                Button("Start") { store.compose(project, .start, service: c.service) }
+            }
+            Button("Logs") { store.compose(project, .logs, service: c.service) }
+            Divider()
+            Button("Pull") { store.compose(project, .pull, service: c.service) }
+            Button("Build") { store.compose(project, .build, service: c.service) }
+        } label: { Image(systemName: "ellipsis.circle") }
+        .menuStyle(.button).buttonStyle(.borderless).menuIndicator(.hidden).fixedSize()
+        .disabled(busy)
+        .help("Actions for the \(c.service) service")
+        .accessibilityLabel("Actions for the \(c.service) service")
     }
 }

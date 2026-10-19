@@ -88,6 +88,8 @@ with tempfile.TemporaryDirectory(prefix="harbor-api-", dir="/tmp") as directory:
         assert row["State"] == "running"
         assert row["Status"] == "Up 2 minutes"
         assert "18080" in row["Ports"]
+        # Per-service Compose actions in Harbor target this name.
+        assert row["Service"] == "web", row
         # Only reads: the handler implements GET/HEAD alone, and every request must have been one of them.
         assert requests and all(r.split(" ", 1)[0] in ("GET", "HEAD") for r in requests), requests
         print("PASS: real Docker CLI + Compose → isolated Unix socket → compose ps JSON fields")
