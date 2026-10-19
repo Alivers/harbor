@@ -6,7 +6,15 @@ Guidance for AI coding agents working in this repository.
 
 Harbor is a native Swift + SwiftUI macOS GUI for Apple Container (0.2 preview). It never implements a VM, engine, or Docker API itself: every action shells out (without a shell) to the official `container` CLI. Docker / Compose support is an optional extension that talks to a Socktainer Unix socket. No external Swift package dependencies, no Electron/WebView/Node.
 
-The repository is English-only: UI strings, error messages, docs, comments and commit messages. Do not add text in other languages.
+## Language: English only
+
+Everything in this repository is written in English, with no exceptions:
+- code: identifiers, comments, UI strings, error and log messages, test names and test data;
+- docs: `README.md`, `FEATURES.md`, `VALIDATION.md`, this file and any new Markdown;
+- scripts, config files and file names;
+- git: commit messages, branch names, PR titles and descriptions, review replies.
+
+This holds even when the request is written in another language: translate, don't copy. If a file you touch still contains non-English text, translate it in the same change.
 
 ## Commands
 
