@@ -378,14 +378,19 @@ enum Preference {
 
     /// Routes files dropped on the window: Compose files become a project, image archives are loaded,
     /// and a build context or Dockerfile opens the Build Image form. Returns false when nothing matched.
+    @discardableResult
     func open(_ urls: [URL]) -> Bool {
-        let compose = urls.filter { ["yaml", "yml"].contains($0.pathExtension.lowercased()) }
-        let archives = urls.filter { ["tar", "gz", "tgz"].contains($0.pathExtension.lowercased()) }
-        let builds = urls.filter { url in
-            var isDirectory: ObjCBool = false
-            _ = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+        // A project folder with a Compose file but no Dockerfile is a Compose project, not a build context.
+        let resolved = urls.map { url -> URL in
+            guard isFolder(url), !["Dockerfile", "Containerfile"].contains(where: { exists(url, $0) }),
+                  let file = ["compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"].first(where: { exists(url, $0) }) else { return url }
+            return url.appendingPathComponent(file)
+        }
+        let compose = resolved.filter { ["yaml", "yml"].contains($0.pathExtension.lowercased()) }
+        let archives = resolved.filter { ["tar", "gz", "tgz"].contains($0.pathExtension.lowercased()) }
+        let builds = resolved.filter { url in
             let name = url.lastPathComponent.lowercased()
-            return isDirectory.boolValue || name.hasPrefix("dockerfile") || name.hasPrefix("containerfile") || name.hasSuffix(".dockerfile")
+            return isFolder(url) || name.hasPrefix("dockerfile") || name.hasPrefix("containerfile") || name.hasSuffix(".dockerfile")
         }
         if !compose.isEmpty { addProject(compose.map(\.path)); requestedPage = .compose }
         archives.forEach { loadImages(from: $0) }
@@ -393,6 +398,11 @@ enum Preference {
         if let first = builds.first { present(.build(BuildOptions(dropped: first.path))) }
         return !(compose.isEmpty && archives.isEmpty && builds.isEmpty)
     }
+    private func isFolder(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+    private func exists(_ folder: URL, _ name: String) -> Bool { FileManager.default.fileExists(atPath: folder.appendingPathComponent(name).path) }
 
     // MARK: Optional Docker compatibility
 

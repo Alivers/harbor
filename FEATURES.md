@@ -2,7 +2,7 @@
 
 Based on the actual CLI help in the official Apple Container 1.5.0 release; all 67 leaf commands have been checked.
 
-The table lists the actions the app provides an entry point for. Not every action has a dedicated form, and listing an action does not mean it has been run against a real runtime. Every action lets you edit the full native arguments, read the local help, choose a working directory and hand off to Terminal.
+The table lists the actions the app provides an entry point for. Not every action has a dedicated form, and listing an action does not mean it has been run against a real runtime. Dedicated forms or views exist for running, starting, stopping, deleting, logs, stats, inspect and copying files (containers); pulling, building, tagging, pushing, saving, loading, pruning and deleting (images); and creating networks and volumes. Every action lets you edit the full native arguments, read the local help, choose a working directory and hand off to Terminal.
 
 | Category | Action | Native command |
 | --- | --- | --- |

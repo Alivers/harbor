@@ -110,7 +110,7 @@ struct TagImageSheet: View {
     @ViewState<String> private var target = ""
     private var trimmed: String { target.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var problem: String? {
-        if !ImageReference.isValid(trimmed) { return "Enter a new name, like registry.example.com/team/app:1.0." }
+        if !ImageReference.isValid(trimmed) || trimmed.hasSuffix(":") || trimmed.hasSuffix("/") { return "Enter a new name, like registry.example.com/team/app:1.0." }
         if trimmed == image.reference { return "The new name is the same as the current one." }
         return nil
     }
@@ -215,7 +215,9 @@ struct ImportImagesSheet: View {
             }
             .padding(20)
             Group {
-                if let failure {
+                if sources.isEmpty {
+                    Spacer()
+                } else if let failure {
                     ContentUnavailableView { Label("Could Not Read Images", systemImage: "exclamationmark.triangle") } description: { Text(failure).textSelection(.enabled) }
                 } else if loading {
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)

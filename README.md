@@ -2,16 +2,30 @@
 
 A native Swift + SwiftUI manager for Apple Container. **Native features come first; Docker / Compose is only an optional extension.** No Electron, WebView or Node.js.
 
-This is the **0.3 preview** and requires **macOS 27** on Apple silicon. The app calls the official `container` CLI directly and does not implement its own virtual machine, container engine or Docker API.
+This is the **0.4 preview** and requires **macOS 27** on Apple silicon. The app calls the official `container` CLI directly and does not implement its own virtual machine, container engine or Docker API.
 
 ## Using Harbor
 
 - **Native macOS 27 layout.** A sidebar groups Workloads, Resources, Environments and System. Actions live in the toolbar, search sits in the toolbar's search field, and details open in an inspector. Navigation and toolbars use Liquid Glass from the system. The only custom glass is the floating activity capsule; content stays on plain backgrounds so it remains easy to read.
 - **Nothing blocks.** Starting, stopping, pulling or composing runs in the background, and several jobs can run at once; only the resource a job changes is locked. The capsule at the bottom of the window shows what is running, then how it ended. A failure stays until you dismiss it or open its output. The clock button in the toolbar lists recent jobs with their full output.
 - **Output where it matters.** Logs, inspect output, reports and raw catalog commands open their output right away. Lifecycle actions don't open anything unless they fail.
-- **Containers.** Filter by running or stopped. Click a published port to open it in the browser. Rows show actions on hover, and right-click gives you the rest. Double-click a row, or use the inspector button, to see details, recent logs (followed live when the CLI supports `--follow`) and inspect JSON. Deleting a running container stops it first, after you confirm.
+- **Containers.** Filter by running or stopped and sort by name, image, state or age. Click a published port to open it in the browser. Rows show actions on hover, and right-click gives you the rest; select several rows to start, stop, restart or delete them together. Double-click a row, or use the inspector button, for:
+  - **Overview**: command, working directory, user, networks with their addresses, mounts, environment (values hidden until you show them) and labels.
+  - **Logs**: recent output, followed live when the CLI supports `--follow`.
+  - **Stats**: live CPU, memory and network charts.
+  - **Files**: browse the container's folders, download files, and upload by picking or dropping files.
+  - **Inspect**: the raw JSON.
+
+  Deleting a running container stops it first, after you confirm.
+- **Run Container form.** Pick a network and named volumes from lists, mount a folder, and set Delete-when-stopped, architecture (to run amd64 images), init process, read-only root, entrypoint, working directory, user and labels. Each option appears only when your CLI's `container run --help` lists it.
+- **Images.** Build from a Dockerfile, tag, push, save to and load from archives, and remove dangling or unused images. Each image shows when it was created and which containers use it. **Import from Docker** copies images from OrbStack, Docker Desktop or Colima.
+- **Networks and volumes.** Create them with a form; the list shows which containers use each one.
+- **Compose.** Up, Stop, Restart, Pull, Build and Down (optionally deleting volumes) per project, and start, stop, restart, logs, pull and build per service.
+- **Drag and drop.** Drop Compose files to import a project, `.tar` archives to load images, or a folder or Dockerfile to open the Build Image form.
+- **Menu bar.** The Harbor menu shows the engine and running containers, with quick actions, while the window is closed. Turn it off in Settings.
+- **Notifications.** A job that fails or takes more than a few seconds while Harbor is in the background posts a notification. Turn it off in Settings.
 - **First run.** If the CLI is missing, Harbor offers the install command and the installer link. If the engine is stopped, a single button starts it.
-- **Keyboard.** ⌘N runs a container, ⇧⌘P pulls an image, ⌘O imports a Compose project, ⌘R refreshes, and ⌘F inside any output finds text.
+- **Keyboard.** ⌘N runs a container, ⇧⌘P pulls an image, ⇧⌘B builds one, ⌘O imports a Compose project, ⌘R refreshes, and ⌘F inside any output finds text.
 
 ## Feature coverage
 
@@ -19,18 +33,18 @@ Checked against the actual help output of the official Apple Container **1.5.0**
 
 | Category | Current implementation |
 | --- | --- |
-| Containers | Native JSON list with filter and search, run form, start/stop/restart, delete (stopping first), port links, inspector with details, live logs and inspect JSON, stats, Terminal shell; copy, export and prune go through the command panel |
-| Images | Native list with search, background pull, run from image, multi-select delete; push, tag, save, load, inspect and prune go through the command panel |
-| Build | BuildKit status, image builds, builder start/stop/delete |
-| Networks, volumes | Lists read from the CLI and shown as tables, with inspect/delete per row; create and prune entries |
+| Containers | Native JSON list with filter, sort and search, run form, start/stop/restart and delete for one or many, port links, inspector with details, live logs, live stats charts, file browser with download/upload, inspect JSON, Terminal shell; export and prune go through the command panel |
+| Images | Native list with search, creation date and in-use badge, background pull, build form, tag, push, save, load, prune, import from another Docker engine, run from image, multi-select delete; inspect goes through the command panel |
+| Build | Build form (context, Dockerfile, tags, build arguments, target, platform), BuildKit status, builder start/stop/delete |
+| Networks, volumes | Lists read from the CLI and shown as tables with a Used By column, inspect/delete per row, create forms, prune |
 | Registries | Login list, log in/out; interactive credentials are entered in Terminal |
 | Linux machines | Create, run, list, inspect, configure, default machine, logs, stop and delete |
 | System | Engine start/stop, status, version, logs, disk usage, DNS, kernel, properties |
 | Kubernetes | Official experimental `k8s` plugin: create, delete, list, load-image, write-config |
 | Native commands | Searchable command catalog, custom arguments, working directory, live local help, Terminal mode |
-| Compose (optional) | Multi-file import with override order, validate, build, up, stop, logs and status, plus each project's containers listed in place; runs the real Docker CLI / Compose against a dedicated Socktainer socket |
+| Compose (optional) | Multi-file import (or drop) with override order, validate, build, pull, up, stop, restart, down, logs and status, per-service actions, and each project's containers listed in place; runs the real Docker CLI / Compose against a dedicated Socktainer socket |
 
-**"Has an entry point" does not mean every command has its own graphical form.** The network, volume, machine, registry and Kubernetes pages show the official CLI listing as a table, with per-row actions and a generic argument panel; advanced options are passed straight through to the CLI. If a listing is not an aligned table, it is shown verbatim. There is no embedded PTY terminal, file browser or live resource chart yet. Use Terminal for interactive commands.
+**"Has an entry point" does not mean every command has its own graphical form.** The network, volume, machine, registry and Kubernetes pages show the official CLI listing as a table, with per-row actions and a generic argument panel; advanced options are passed straight through to the CLI. If a listing is not an aligned table, it is shown verbatim. There is no embedded PTY terminal; interactive shells open in Terminal.
 
 Every command panel first reads the local `--help` and checks that the help belongs to the selected subcommand. An unsupported version, a plugin that is not running or a missing CLI shows an error and disables execution. A custom command entry is still available for commands added in future versions.
 
@@ -114,10 +128,12 @@ Optional Compose → Docker CLI → dedicated Socktainer socket → Apple Contai
 - The main views parse the official JSON; unsupported JSON shapes produce an explicit error instead of fake empty resources.
 - Commands run in the background; stdout and stderr are written to separate temporary files to avoid pipe blocking.
 - User-triggered commands run as background jobs, concurrently except on the same resource. Output streams in line by line and stays in the Activity list.
-- Views observe only the state they read (`@Observable`), the 6-second refresh skips unchanged data and pauses while Harbor is in the background, and output views append text instead of redrawing it.
+- Views observe only the state they read (`@Observable`), the 6-second refresh skips unchanged data, and output views append text instead of redrawing it. In the background Harbor reads state every 30 seconds only while the menu bar extra is shown, and not at all otherwise.
+- The file browser lists folders with the container's own `ls` and copies with `container copy`. Images without `ls` (distroless, scratch) cannot be browsed, though a known path can still be downloaded.
+- Importing from another Docker engine names that engine's socket explicitly, like every Docker command Harbor runs, and only reads there (`image ls`, `image save`).
 - Timeouts and cancellation are supported; canceling the CLI does not guarantee that work already submitted to the engine is undone, so refresh to check state.
 - A command that writes more than 2 MB is stopped and you are asked to use Terminal. The service log view shows the last 256 KB.
-- The app stores tool paths and Compose file paths; it does not persist environment variables entered when creating a container. Logs and inspect output may contain sensitive data; review them before sharing.
+- The app stores tool paths, Compose file paths and two preferences; it does not persist environment variables entered when creating a container. The container overview hides environment values until you choose to show them. Logs and inspect output may contain sensitive data; review them before sharing.
 
 ## Open-source references
 
@@ -133,7 +149,7 @@ Runtime references: [Apple Container 1.5.0](https://github.com/apple/container/r
 
 See `VALIDATION.md`. Compilation, the native command catalog, local help, process invocation and parsing have been checked. The runtime is not installed on the test machine, so real containers, networks, volumes, Linux machines, Kubernetes and Compose still need end-to-end verification. Command entry coverage should not be read as full production readiness.
 
-Images, volumes, databases and credentials from OrbStack are not migrated automatically. Before switching for real, verify data persistence, networking and builds with your own projects.
+Images can be copied from OrbStack or Docker Desktop with Import from Docker; volumes, databases and credentials are not migrated. Before switching for real, verify data persistence, networking and builds with your own projects.
 
 ## License
 

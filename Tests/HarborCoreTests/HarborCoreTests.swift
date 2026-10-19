@@ -385,6 +385,6 @@ func XCTAssertThrowsError<T>(_ expression: @autoclosure () throws -> T) {
         try await suite.testNonzeroExitIsReported()
         try await suite.testTimeoutTerminatesProcess()
         try await suite.testCancellationTerminatesProcess()
-        print("PASS: 22 checks — native JSON, registry ports, image references, native isolation, tokenizer, command catalog, scoped help, Docker socket isolation, Compose paths, Compose file order, JSON, literal arguments, text tables, shell quoting, installer source, Terminal script, large output, streaming output, output limit, errors, timeout, cancellation")
+        print("PASS: 27 checks — native JSON, registry ports, image references, native isolation, tokenizer, command catalog, scoped help, Docker socket isolation, Compose paths, Compose file order, JSON, literal arguments, 1.5.0 details and stats, run form flags, build/network/volume forms, Compose services, container files and Docker import, text tables, shell quoting, installer source, Terminal script, large output, streaming output, output limit, errors, timeout, cancellation")
     }
 }

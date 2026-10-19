@@ -58,7 +58,7 @@ struct RunContainerSheet: View {
                     if offers("--arch") {
                         Picker("Architecture", selection: $options.architecture) {
                             Text("This Mac (arm64)").tag("")
-                            Text("Intel (amd64, through Rosetta)").tag("amd64")
+                            Text("Intel (amd64)").tag("amd64")
                         }
                     }
                 } header: { Text("Container") }
