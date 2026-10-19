@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  macos-app:
+    name: macOS app build and core checks
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: sw_vers && xcodebuild -version && swift --version
+      - name: Build Harbor.app
+        run: HARBOR_BUILD_DIR="$RUNNER_TEMP/build" bash scripts/build-app.sh
+      - name: Core checks
+        run: swift run --scratch-path "$RUNNER_TEMP/build" HarborChecks
+
+  linux-core:
+    name: Core checks on Linux
+    runs-on: ubuntu-latest
+    container: swift:6.1-noble
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Core checks
+        run: swift run HarborChecks
+
+  docker-adapter:
+    name: Docker adapter check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compose ps JSON against a fake Engine API
+        run: docker --version && docker compose version && python3 scripts/check-docker-adapter.py
