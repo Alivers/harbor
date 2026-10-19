@@ -8,6 +8,10 @@ final class HarborCoreTests {
         XCTAssertEqual(containers[0].name, "web")
         XCTAssertTrue(containers[0].running)
         XCTAssertTrue(containers[0].ports.contains("8080"))
+        XCTAssertEqual(containers[0].portMappings.first?.url?.absoluteString, "http://localhost:8080")
+        let bound = PortMapping(hostAddress: "127.0.0.1", hostPort: 5353, containerPort: 53, transport: "UDP")
+        XCTAssertNil(bound.url); XCTAssertEqual(bound.label, "5353 → 53/udp")
+        XCTAssertEqual(PortMapping(hostAddress: "::1", hostPort: 8443, containerPort: 443).url?.absoluteString, "http://[::1]:8443")
         let legacy = #"[{"configuration":{"id":"web","image":{"reference":"nginx:alpine"}},"status":"stopped"}]"#
         XCTAssertEqual(try NativeParser.containers(legacy)[0].state, "stopped")
         XCTAssertThrowsError(try NativeParser.containers("[{}]"))
@@ -100,18 +104,40 @@ final class HarborCoreTests {
         let service = #"{"Command":"\"nginx\"","ExitCode":0,"ID":"aaaaaaaaaaaa","Image":"nginx:alpine","Name":"harbor-smoke-web-1","Names":"harbor-smoke-web-1","Ports":"127.0.0.1:18080->80/tcp","Project":"harbor-smoke","Publishers":[{"URL":"127.0.0.1","TargetPort":80,"PublishedPort":18080,"Protocol":"tcp"}],"Service":"web","State":"running","Status":"Up 2 minutes"}"#
         let services = try JSONRows.decode(ContainerRow.self, from: service + "\n")
         XCTAssertEqual(services.map(\.name), ["harbor-smoke-web-1"]); XCTAssertTrue(services[0].running)
+        XCTAssertEqual(services[0].portMappings.map(\.url?.absoluteString), ["http://127.0.0.1:18080"])
     }
     func testRunArgumentsKeepEnvironmentLiteral() throws {
-        var options = RunOptions(); options.environment = "TOKEN=$(touch /tmp/should-never-exist)\nGREETING=hello world"
+        var options = RunOptions(image: " nginx:alpine "); options.environment = ["TOKEN=$(touch /tmp/should-never-exist)", "GREETING=hello world", "  "]
         let args = try options.arguments()
         XCTAssertTrue(args.contains("TOKEN=$(touch /tmp/should-never-exist)"))
         XCTAssertTrue(args.contains("GREETING=hello world"))
         XCTAssertEqual(args.last, "nginx:alpine")
+        XCTAssertNil(options.problem)
+        XCTAssertTrue(RunOptions().problem?.contains("image") == true)
         options.image = "--privileged"; XCTAssertThrowsError(try options.arguments())
-        options.image = "nginx"; options.environment = "invalid"; XCTAssertThrowsError(try options.arguments())
-        var ports = RunOptions(); ports.ports = "127.0.0.1:8080:80, 8443:443\n9000:9000"
+        options.image = "nginx"; options.environment = ["invalid"]; XCTAssertThrowsError(try options.arguments())
+        var ports = RunOptions(image: "nginx"); ports.ports = ["127.0.0.1:8080:80", " 8443:443/tcp ", "", "[::1]:9000:9000"]; ports.volumes = ["/srv/data:/data"]
         let portArgs = try ports.arguments()
-        XCTAssertEqual(zip(portArgs, portArgs.dropFirst()).filter { $0.0 == "--publish" }.map(\.1), ["127.0.0.1:8080:80", "8443:443", "9000:9000"])
+        XCTAssertEqual(zip(portArgs, portArgs.dropFirst()).filter { $0.0 == "--publish" }.map(\.1), ["127.0.0.1:8080:80", "8443:443/tcp", "[::1]:9000:9000"])
+        XCTAssertTrue(portArgs.contains("/srv/data:/data"))
+        ports.ports = ["8080"]; XCTAssertTrue(ports.problem?.contains("8080") == true)
+        ports.ports = []; ports.volumes = ["data"]; XCTAssertNotNil(ports.problem)
+        ports.volumes = []; ports.extraOptions = "--label 'open"; XCTAssertNotNil(ports.problem)
+    }
+    func testTextTablesAndResourceHelpers() {
+        let table = TextTable.parse("NETWORK  STATE    SUBNET\ndefault  running  192.168.64.0/24\ndev-net  stopped\n")
+        XCTAssertEqual(table?.columns, ["NETWORK", "STATE", "SUBNET"])
+        XCTAssertEqual(table?.rows, [["default", "running", "192.168.64.0/24"], ["dev-net", "stopped", ""]])
+        XCTAssertEqual(TextTable.parse("CONTAINER ID   IMAGE\nabc            nginx:alpine")?.columns, ["CONTAINER ID", "IMAGE"])
+        XCTAssertEqual(TextTable.parse("NAME  STATE\n")?.rows.count, 0)
+        XCTAssertNil(TextTable.parse("No machines found."))
+        XCTAssertNil(TextTable.parse("NAME  STATE\nverylongname state"))
+        XCTAssertNil(TextTable.parse(""))
+        XCTAssertEqual(NativeOperation.named("network delete")?.example(naming: "dev net"), "'dev net'")
+        XCTAssertEqual(NativeOperation.named("machine logs")?.example(naming: "box"), "-n 300 box")
+        XCTAssertEqual(NativeOperation.named("k8s delete")?.example(naming: "lab"), "--name lab")
+        XCTAssertEqual(JSONText.pretty(#"{"b":1,"a":[true]}"#), "{\n  \"a\" : [\n    true\n  ],\n  \"b\" : 1\n}")
+        XCTAssertEqual(JSONText.pretty("not json"), "not json")
     }
     func testShellQuoteRoundTrip() async throws {
         let input = "a ' quote \" $HOME `false` $(false)\nsecond line"
@@ -183,6 +209,7 @@ func XCTFail(_ message: String) { fatalError(message) }
 func XCTAssertTrue(_ value: Bool) { precondition(value) }
 func XCTAssertFalse(_ value: Bool) { precondition(!value) }
 func XCTAssertNil<T>(_ value: T?) { precondition(value == nil) }
+func XCTAssertNotNil<T>(_ value: T?) { precondition(value != nil) }
 func XCTAssertEqual<T: Equatable>(_ a: T, _ b: T) { precondition(a == b, "Values differ") }
 func XCTAssertGreaterThan<T: Comparable>(_ a: T, _ b: T) { precondition(a > b) }
 func XCTAssertLessThan<T: Comparable>(_ a: T, _ b: T) { precondition(a < b) }
@@ -204,6 +231,7 @@ func XCTAssertThrowsError<T>(_ expression: @autoclosure () throws -> T) {
         suite.testComposeDirectoryFollowsFileOrder()
         try suite.testDockerJSONLinesAndArray()
         try suite.testRunArgumentsKeepEnvironmentLiteral()
+        suite.testTextTablesAndResourceHelpers()
         try await suite.testShellQuoteRoundTrip()
         try await suite.testTerminalScriptQuotesEveryPart()
         try await suite.testLargeStdoutAndStderrDoNotDeadlock()
@@ -212,6 +240,6 @@ func XCTAssertThrowsError<T>(_ expression: @autoclosure () throws -> T) {
         try await suite.testNonzeroExitIsReported()
         try await suite.testTimeoutTerminatesProcess()
         try await suite.testCancellationTerminatesProcess()
-        print("PASS: 20 checks — native JSON, registry ports, image references, native isolation, tokenizer, command catalog, scoped help, Docker socket isolation, Compose paths, Compose file order, JSON, literal arguments, shell quoting, Terminal script, large output, streaming output, output limit, errors, timeout, cancellation")
+        print("PASS: 21 checks — native JSON, registry ports, image references, native isolation, tokenizer, command catalog, scoped help, Docker socket isolation, Compose paths, Compose file order, JSON, literal arguments, text tables, shell quoting, Terminal script, large output, streaming output, output limit, errors, timeout, cancellation")
     }
 }

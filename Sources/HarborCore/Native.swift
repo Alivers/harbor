@@ -23,13 +23,12 @@ public enum NativeParser {
             let resources = config["resources"] as? [String: Any] ?? [:]
             let cpus = (resources["cpus"] as? NSNumber)?.stringValue ?? "?"
             let memory = (resources["memoryInBytes"] as? NSNumber)?.int64Value ?? 0
-            let ports = config["publishedPorts"] as? [[String: Any]] ?? []
-            let published = ports.map { port -> String in
-                let host = port["hostPort"] ?? "?", target = port["containerPort"] ?? "?"
-                return "\(host) → \(target)"
-            }.joined(separator: ", ")
+            let mappings = (config["publishedPorts"] as? [[String: Any]] ?? []).compactMap { port -> PortMapping? in
+                guard let host = (port["hostPort"] as? NSNumber)?.intValue, let target = (port["containerPort"] as? NSNumber)?.intValue else { return nil }
+                return PortMapping(hostAddress: port["hostAddress"] as? String ?? "", hostPort: host, containerPort: target, transport: (port["proto"] ?? port["protocol"]) as? String ?? "tcp")
+            }
             let details = "\(cpus) CPU · \(ByteCountFormatter.string(fromByteCount: memory, countStyle: .memory))" + (addresses.isEmpty ? "" : " · " + addresses)
-            return ContainerRow(id: id, name: id, image: reference, state: state, status: details, ports: published)
+            return ContainerRow(id: id, name: id, image: reference, state: state, status: details, ports: mappings.map(\.label).joined(separator: ", "), portMappings: mappings)
         }
     }
     public static func images(_ text: String) throws -> [ImageRow] {
@@ -102,6 +101,11 @@ public struct NativeOperation: Identifiable, Hashable, Sendable {
     /// Catalog groups in display order.
     public static let groups: [String] = { var seen = Set<String>(); return all.map(\.group).filter { seen.insert($0).inserted } }()
     public static func operations(in group: String) -> [NativeOperation] { all.filter { $0.group == group } }
+    public static func named(_ id: String) -> NativeOperation? { all.first { $0.id == id } }
+    /// The example arguments aimed at a listed resource: every catalog example ends with the resource's name.
+    public func example(naming resource: String) -> String {
+        (example.split(separator: " ").dropLast().map(String.init) + [Command.quote(resource)]).joined(separator: " ")
+    }
     public static let all: [NativeOperation] = [
         .init("Containers", "Run Container", "run", "--detach --name web -p 127.0.0.1:8080:80 nginx:alpine"),
         .init("Containers", "Create Without Starting", "create", "--name web nginx:alpine"),

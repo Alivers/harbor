@@ -7,17 +7,28 @@ on:
 
 jobs:
   macos-app:
-    name: macOS app build and core checks
+    name: macOS app build
     runs-on: macos-26
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - name: Toolchain
-        run: sw_vers && xcodebuild -version && swift --version
+      - uses: actions/checkout@v5
+      - name: Select the newest Xcode with the macOS 27 SDK
+        run: |
+          ls -d /Applications/Xcode*.app
+          xcode="$(ls -d /Applications/Xcode_27*.app 2>/dev/null | sort -V | tail -1)"
+          if [ -n "$xcode" ]; then sudo xcode-select -s "$xcode"; fi
+          sw_vers && xcodebuild -version && xcrun --sdk macosx --show-sdk-version && swift --version
       - name: Build Harbor.app
         run: HARBOR_BUILD_DIR="$RUNNER_TEMP/build" bash scripts/build-app.sh
       - name: Core checks
-        run: swift run --scratch-path "$RUNNER_TEMP/build" HarborChecks
+        run: |
+          # Binaries target macOS 27; an older runner cannot launch them, and the Linux job covers the checks.
+          if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 27 ]; then
+            swift run --scratch-path "$RUNNER_TEMP/build" HarborChecks
+          else
+            swift build --scratch-path "$RUNNER_TEMP/build" --product HarborChecks
+            echo "Runner is older than macOS 27: HarborChecks built but not run here."
+          fi
 
   linux-core:
     name: Core checks on Linux
@@ -25,7 +36,7 @@ jobs:
     container: swift:6.1-noble
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Core checks
         run: swift run HarborChecks
 
@@ -34,6 +45,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Compose ps JSON against a fake Engine API
         run: docker --version && docker compose version && python3 scripts/check-docker-adapter.py

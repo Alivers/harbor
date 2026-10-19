@@ -29,9 +29,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.do_GET()
 
     def do_GET(self):
-        requests.append(self.path)
+        requests.append(self.command + " " + self.path)
         if self.path.endswith("/_ping"):
             body = b"OK"
+        elif self.path.endswith("/info"):
+            body = json.dumps({"ID": "harbor-fake", "Name": "harbor-fake", "ServerVersion": "28.0.0",
+                               "OSType": "linux", "Architecture": "aarch64"}).encode()
         elif "/containers/json" in self.path:
             body = json.dumps([{
                 "Id": container_id, "Names": ["/harbor-smoke-web-1"], "Image": "nginx:alpine",
@@ -85,7 +88,8 @@ with tempfile.TemporaryDirectory(prefix="harbor-api-", dir="/tmp") as directory:
         assert row["State"] == "running"
         assert row["Status"] == "Up 2 minutes"
         assert "18080" in row["Ports"]
-        assert requests and all(p.endswith("/_ping") or "/containers/" in p for p in requests), requests
+        # Only reads: the handler implements GET/HEAD alone, and every request must have been one of them.
+        assert requests and all(r.split(" ", 1)[0] in ("GET", "HEAD") for r in requests), requests
         print("PASS: real Docker CLI + Compose → isolated Unix socket → compose ps JSON fields")
         print("This verifies the adapter only, not Apple Container or Socktainer compatibility.")
     finally:

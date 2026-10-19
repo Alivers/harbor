@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "Harbor",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS("27.0")],
     products: [.executable(name: "Harbor", targets: ["Harbor"])],
     targets: [
         .target(name: "HarborCore"),

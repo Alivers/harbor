@@ -2,178 +2,346 @@ import SwiftUI
 import AppKit
 import HarborCore
 
-struct RuntimeView: View {
-    @EnvironmentObject var store: Store
+extension Page {
+    /// The read-only listing at the top of a generic resource page.
+    var listing: [String] { switch self {
+    case .build: ["builder", "status"]; case .networks: ["network", "list"]; case .volumes: ["volume", "list"]
+    case .machines: ["machine", "list"]; case .kubernetes: ["k8s", "list"]; case .registries: ["registry", "list"]
+    default: []
+    } }
+    /// Catalog commands that act on one listed resource, named by the table's first column.
+    /// Each one's example must end with the resource name (see `NativeOperation.example(naming:)`).
+    var rowActions: [String] { switch self {
+    case .networks: ["network inspect", "network delete"]
+    case .volumes: ["volume inspect", "volume delete"]
+    case .machines: ["machine inspect", "machine logs", "machine set-default", "machine stop", "machine delete"]
+    case .kubernetes: ["k8s write-config", "k8s delete"]
+    case .registries: ["registry logout"]
+    default: []
+    } }
+    var note: String? { switch self {
+    case .kubernetes: "Kubernetes is an experimental plugin. Creating a cluster pulls node images and merges ~/.kube/config. There is no k8s start; Harbor never creates clusters on its own."
+    case .machines: "Machine creation controls the home directory mount. The example uses --home-mount none; choose read-only or read-write sharing as needed."
+    default: nil
+    } }
+}
+
+extension NativeOperation {
+    var symbol: String { switch path.last ?? "" {
+    case "list", "df": "list.bullet"; case "inspect", "status", "version", "property": "info.circle"
+    case "create", "run": "plus.circle"; case "delete", "prune", "clean": "trash"
+    case "start": "play.circle"; case "stop", "kill": "stop.circle"; case "logs": "text.alignleft"
+    case "login": "person.badge.key"; case "logout": "rectangle.portrait.and.arrow.right"
+    case "pull", "load", "load-image": "arrow.down.circle"; case "push", "save", "export": "arrow.up.circle"
+    case "build": "hammer"; case "exec": "terminal"; case "copy": "doc.on.doc"; case "tag": "tag"
+    default: "chevron.left.forwardslash.chevron.right"
+    } }
+}
+
+/// A raw CLI listing (parsed into a table when it is aligned) plus the page's catalog actions.
+struct ResourceView: View {
+    @Environment(Store.self) private var store
+    let page: Page
+    @ViewState<String> private var output = ""
+    @ViewState<String?> private var failure: String?
+    @ViewState<Bool> private var loaded = false
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            HStack(spacing: 16) {
-                Image(systemName: "cpu").font(.system(size: 42, weight: .light)).foregroundStyle(.mint)
-                VStack(alignment: .leading, spacing: 6) { Text(store.connected ? "Native Engine Connected" : "Connect Apple Container").font(.title2.weight(.semibold)); Text("Harbor → container CLI → Apple Container").font(.callout).foregroundStyle(.secondary) }
-                Spacer()
-            }
-            GroupBox("Runtime") {
-                VStack(alignment: .leading, spacing: 16) {
-                    HStack { Image(systemName: FileManager.default.isExecutableFile(atPath: store.config.container) ? "checkmark.circle.fill" : "circle.dashed").foregroundStyle(.mint); Text("Apple Container CLI"); Spacer(); Text(store.config.container).font(.system(.caption, design: .monospaced)).textSelection(.enabled) }
-                    Text(store.connectionMessage).font(.caption).foregroundStyle(.secondary).lineLimit(5).textSelection(.enabled)
-                    HStack {
-                        Button("Start Engine") { store.perform("Start Apple Container", command: store.config.nativeCommand(["system", "start", "--enable-kernel-install"]), timeout: 300) }.buttonStyle(.borderedProminent).disabled(store.busy || store.connected)
-                        Button("Status") { store.perform("Engine Status", command: store.config.nativeCommand(["system", "status"])) }.disabled(store.busy)
-                        Button("Version") { store.perform("Version Info", command: store.config.nativeCommand(["system", "version"])) }.disabled(store.busy)
-                        SettingsLink { Text("Set Paths…") }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                listing
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Actions").font(.headline)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 10)], spacing: 10) {
+                        ForEach(NativeOperation.operations(in: page.group ?? "")) { OperationTile(operation: $0) }
                     }
-                    Text("The first start downloads the officially recommended kernel. Quitting Harbor does not stop the native engine or containers.").font(.caption).foregroundStyle(.secondary)
-                }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if let note = page.note { Text(note).font(.caption).foregroundStyle(.secondary) }
             }
-            GroupBox("Install the Official Runtime") {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("Requires Apple Silicon and macOS 26+. Once the official container CLI is installed, every native action is available.").font(.callout)
-                    HStack { Text("brew install container").font(.system(.body, design: .monospaced)).textSelection(.enabled); Spacer(); Button("Copy") { store.copy("brew install container") }; Link("Official Installer ↗", destination: URL(string: "https://github.com/apple/container/releases")!) }
-                    Text("The native workflow needs no Docker, Socktainer or background compatibility proxy.").font(.caption).foregroundStyle(.secondary)
-                }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            .padding(20)
+        }
+        .navigationTitle(page.title)
+        .navigationSubtitle("container " + page.listing.joined(separator: " "))
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { Task { await load() } } label: { Label("Reload", systemImage: "arrow.clockwise") }.help("Read the list again")
             }
-            GroupBox("System Tools") {
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 12) {
-                    ForEach(NativeOperation.operations(in: "System")) { op in
-                        Button { store.nativeOperation = op } label: { HStack { Image(systemName: op.destructive ? "exclamationmark.circle" : "gearshape"); Text(op.title); Spacer(); Image(systemName: "chevron.right").font(.caption2) }.padding(9) }.buttonStyle(.plain).disabled(store.busy)
+            if let group = page.group { ToolbarItem(placement: .primaryAction) { NativeActionsMenu(group: group) } }
+        }
+        // Reload after any job finishes: it may have created or deleted what this page lists.
+        .task(id: "\(store.changeCount) \(store.engine.isRunning)") { await load() }
+    }
+    @ViewBuilder private var listing: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let failure {
+                Label(failure, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).textSelection(.enabled).lineLimit(6)
+                Text("A stopped engine, an older CLI or a missing plugin can cause this.").font(.caption).foregroundStyle(.secondary)
+            } else if !loaded {
+                ProgressView().frame(maxWidth: .infinity, minHeight: 80)
+            } else if let table = TextTable.parse(output) {
+                if table.rows.isEmpty { Text("Nothing here yet.").foregroundStyle(.secondary) }
+                else { ResourceTable(table: table, actions: page.rowActions.compactMap(NativeOperation.named)) }
+            } else {
+                ScrollView(.horizontal) {
+                    Text(output.isEmpty ? "No output." : output).font(.callout.monospaced()).textSelection(.enabled)
+                }
+            }
+        }
+        .card()
+        .animation(.smooth, value: output)
+    }
+    private func load() async {
+        do { let text = try await store.read(page.listing, timeout: 15); if text != output { output = text }; failure = nil }
+        catch { failure = error.localizedDescription }
+        loaded = true
+    }
+}
+
+private struct ResourceTable: View {
+    @Environment(Store.self) private var store
+    let table: TextTable
+    let actions: [NativeOperation]
+    var body: some View {
+        Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 8) {
+            GridRow {
+                ForEach(table.columns.indices, id: \.self) { i in
+                    Text(table.columns[i].capitalized).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                }
+            }
+            Divider()
+            ForEach(table.rows.indices, id: \.self) { r in
+                GridRow {
+                    ForEach(table.columns.indices, id: \.self) { i in
+                        Text(table.rows[r][i]).font(i == 0 ? Font.callout.weight(.medium) : Font.callout).lineLimit(1).textSelection(.enabled)
                     }
-                }.padding(8)
+                    if !actions.isEmpty, let name = table.rows[r].first, !name.isEmpty {
+                        Menu {
+                            ForEach(actions) { op in
+                                Button(op.title) { store.present(.operation(NativeRequest(op, arguments: op.example(naming: name)))) }
+                            }
+                        } label: { Image(systemName: "ellipsis.circle") }
+                        .menuStyle(.button).buttonStyle(.borderless).menuIndicator(.hidden).fixedSize()
+                        .help("Actions for \(name)")
+                    }
+                }
             }
-            Text("Available features follow the local CLI --help. Linux machines and Kubernetes ship in newer versions; Kubernetes is an official experimental plugin. Advanced arguments are edited in the native command panel; interactive logins and admin operations are handed to Terminal.").font(.caption).foregroundStyle(.secondary)
         }
     }
 }
 
-struct NativeSection: View {
-    @EnvironmentObject var store: Store
-    var group: String
-    var list: [String]
-    @ViewState<String> private var text = "Loading…"
-    @ViewState<Bool> private var loading = false
+struct OperationTile: View {
+    @Environment(Store.self) private var store
+    let operation: NativeOperation
+    @ViewState<Bool> private var hovering = false
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack { Label("From container \(list.joined(separator: " "))", systemImage: "terminal").font(.caption).foregroundStyle(.secondary); Spacer(); Button("Refresh") { Task { await refresh() } }.disabled(loading || store.busy) }
-            ScrollView(.horizontal) { Text(text.isEmpty ? "No resources." : text).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).padding(20).frame(minHeight: 120, alignment: .topLeading) }.frame(maxWidth: .infinity, alignment: .leading).background(.background, in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(.quaternary))
-            Text("Native Actions").font(.headline)
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                ForEach(NativeOperation.operations(in: group)) { op in OperationCard(operation: op) }
+        Button { store.present(.operation(NativeRequest(operation))) } label: {
+            HStack(spacing: 10) {
+                Image(systemName: operation.symbol).foregroundStyle(operation.destructive ? Color.red : Color.harbor).frame(width: 20)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(operation.title).font(.callout.weight(.medium))
+                    Text("container " + operation.id).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                if operation.admin { Image(systemName: "lock").foregroundStyle(.secondary).help("Asks for an administrator password in Terminal") }
+                else if operation.terminal { Image(systemName: "arrow.up.forward.app").foregroundStyle(.secondary).help("Opens in Terminal") }
             }
-            if group == "Kubernetes" { Text("Creating a cluster pulls node images and merges ~/.kube/config. 1.5.0 has no k8s start; read the local help first. Harbor never creates clusters automatically.").font(.caption).foregroundStyle(.secondary) }
-            if group == "Linux Machines" { Text("Machine creation controls the home directory mount. The example uses --home-mount none; choose read-only or read-write sharing as needed.").font(.caption).foregroundStyle(.secondary) }
+            .padding(12)
+            .background(Color.primary.opacity(hovering ? 0.08 : 0.04), in: .rect(cornerRadius: 10))
+            .contentShape(.rect)
         }
-        .task(id: group) { await refresh() }
-        .onChange(of: store.busy) { _, busy in if !busy { Task { await refresh() } } }
-    }
-    private func refresh() async {
-        guard !loading else { return }; loading = true; defer { loading = false }
-        do { text = try await Runner.checked(store.config.nativeCommand(list), timeout: 15) }
-        catch { text = error.localizedDescription + "\n\nCheck the runtime; older CLIs may not support this feature." }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: hovering)
     }
 }
 
-struct OperationCard: View {
-    @EnvironmentObject var store: Store
-    var operation: NativeOperation
+/// Toolbar menu with every catalog command of a group.
+struct NativeActionsMenu: View {
+    @Environment(Store.self) private var store
+    let group: String
     var body: some View {
-        Button { store.nativeOperation = operation } label: {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack { Text(operation.title).font(.callout.weight(.medium)); Spacer(); Image(systemName: operation.terminal ? "arrow.up.right" : "chevron.right").font(.caption).foregroundStyle(.secondary) }
-                Text("container " + operation.id).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
-            }.padding(18).frame(maxWidth: .infinity, alignment: .leading).background(.background, in: RoundedRectangle(cornerRadius: 10)).overlay(RoundedRectangle(cornerRadius: 10).stroke(.quaternary))
-        }.buttonStyle(.plain).disabled(store.busy)
+        Menu {
+            ForEach(NativeOperation.operations(in: group)) { op in
+                Button(op.title) { store.present(.operation(NativeRequest(op))) }
+            }
+        } label: { Label("Native Actions", systemImage: "ellipsis.circle") }
+        .help("All native \(group.lowercased()) commands")
     }
 }
 
-struct NativeCatalogView: View {
-    @EnvironmentObject var store: Store
+struct CatalogView: View {
+    @Environment(Store.self) private var store
     @ViewState<String> private var search = ""
-    @ViewState<String> private var raw = "--help"
+    @ViewState<String> private var custom = ""
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Common actions have forms; everything else keeps a native argument entry. Choosing an action reads the local --help, so features are not pinned to one version.").font(.callout).foregroundStyle(.secondary)
-            GroupBox("Custom Native Command") {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack { Text("container").font(.system(.body, design: .monospaced)); TextField("Enter a subcommand and arguments", text: $raw).textFieldStyle(.roundedBorder) }
-                    HStack {
-                        Button("Open Command Panel") { store.nativeOperation = NativeOperation("Custom", "Custom Native Command", "", raw) }.disabled(store.busy)
-                        Spacer(); Text("Arguments are only split; no pipes, redirects or shell expansion.").font(.caption).foregroundStyle(.secondary)
-                    }
-                }.padding(10)
+        List {
+            Section {
+                HStack(spacing: 8) {
+                    Text("container").font(.body.monospaced()).foregroundStyle(.secondary)
+                    TextField("Arguments", text: $custom, prompt: Text("system status")).textFieldStyle(.plain).font(.body.monospaced()).onSubmit(openCustom)
+                    Button("Open", action: openCustom).disabled(custom.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            } header: { Text("Custom Command") } footer: {
+                Text("Quotes group words; there are no pipes, redirects or expansion. Harbor shows the local help before anything runs.")
             }
-            TextField("Search commands, actions or categories…", text: $search).textFieldStyle(.roundedBorder)
             ForEach(NativeOperation.groups, id: \.self) { group in
-                let ops = NativeOperation.operations(in: group).filter { search.isEmpty || ($0.title + $0.id + $0.group).localizedCaseInsensitiveContains(search) }
-                if !ops.isEmpty { Text(group).font(.headline).padding(.top, 8); LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) { ForEach(ops) { OperationCard(operation: $0) } } }
+                let ops = NativeOperation.operations(in: group).filter { search.isEmpty || ($0.title + " " + $0.id + " " + group).localizedCaseInsensitiveContains(search) }
+                if !ops.isEmpty {
+                    Section(group) { ForEach(ops) { CatalogRow(operation: $0) } }
+                }
             }
         }
+        .searchable(text: $search, placement: .toolbar, prompt: "Commands")
+        .navigationTitle("All Commands")
+        .navigationSubtitle("\(NativeOperation.all.count) native commands")
+    }
+    private func openCustom() {
+        let text = custom.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return }
+        store.present(.operation(NativeRequest(NativeOperation("Custom", "Custom Command", "", text))))
     }
 }
 
+private struct CatalogRow: View {
+    @Environment(Store.self) private var store
+    let operation: NativeOperation
+    var body: some View {
+        Button { store.present(.operation(NativeRequest(operation))) } label: {
+            HStack(spacing: 10) {
+                Image(systemName: operation.symbol).foregroundStyle(operation.destructive ? Color.red : Color.harbor).frame(width: 20)
+                Text(operation.title)
+                Spacer()
+                Text("container " + operation.id).font(.callout.monospaced()).foregroundStyle(.secondary)
+                if operation.admin { Image(systemName: "lock").foregroundStyle(.secondary) }
+                else if operation.terminal { Image(systemName: "arrow.up.forward.app").foregroundStyle(.secondary) }
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Edit a native command's arguments, check them against the local help, then run it.
+/// Running stays disabled until the help is confirmed to belong to this subcommand.
 struct NativeOperationSheet: View {
-    @EnvironmentObject var store: Store
-    @Environment(\.dismiss) var dismiss
-    let initial: NativeOperation
+    enum HelpState { case loading, verified, unavailable }
+    @Environment(Store.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    let request: NativeRequest
     @ViewState<String> private var arguments = ""
     @ViewState<String> private var directory = ""
-    @ViewState<String> private var help = "Reading local command help…"
-    @ViewState<Bool> private var available = false
+    @ViewState<String> private var help = ""
+    @ViewState<HelpState> private var helpState: HelpState = .loading
     @ViewState<Bool> private var terminal = false
     @ViewState<Bool> private var confirm = false
     @ViewState<String?> private var validation: String?
+    private var operation: NativeOperation { request.operation }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack { VStack(alignment: .leading, spacing: 5) { Text(initial.title).font(.title2.weight(.semibold)); Text("container " + initial.id).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary) }; Spacer(); Button("Close") { dismiss() }.keyboardShortcut(.cancelAction) }
-            Text("Arguments").font(.headline)
-            TextEditor(text: $arguments).font(.system(.body, design: .monospaced)).frame(height: 74).padding(5).overlay(RoundedRectangle(cornerRadius: 7).stroke(.quaternary))
-            HStack { TextField("Working directory (optional; use an absolute path)", text: $directory).textFieldStyle(.roundedBorder); Button("Choose…") { let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false; if panel.runModal() == .OK { directory = panel.url?.path ?? "" } } }
-            Toggle("Run in Terminal (interactive input / streaming logs)", isOn: $terminal).disabled(initial.terminal)
-            if initial.admin { Text("This native DNS operation needs administrator rights and will ask for authorization with sudo in Terminal.").font(.caption).foregroundStyle(.secondary) }
-            if initial.path == ["k8s", "create"] || initial.path == ["k8s", "write-config"] { Text("This updates kubeconfig as the official CLI does; confirm the cluster name in the arguments.").font(.caption).foregroundStyle(.secondary) }
-            if let validation { Text(validation).font(.caption).foregroundStyle(.red) }
-            HStack { Text("Local Help").font(.headline); Spacer(); Button("Reload") { Task { await loadHelp() } } }
-            ScrollView([.horizontal, .vertical]) { Text(help).font(.system(size: 11, design: .monospaced)).textSelection(.enabled).padding(14).frame(maxWidth: .infinity, alignment: .leading) }.background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
-            HStack {
-                Button("Copy Command") { do { store.copy(try makeCommand().display) } catch { validation = error.localizedDescription } }
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(operation.title).font(.title2.weight(.semibold))
+                    Text("container " + operation.id).font(.callout.monospaced()).foregroundStyle(.secondary)
+                }
                 Spacer()
-                Text(initial.destructive ? "This stops services or deletes resources." : "Calls the official CLI directly; arguments are not shell-expanded.").font(.caption).foregroundStyle(.secondary)
-                Button(terminal ? "Run in Terminal ↗" : "Run") {
-                    do { _ = try makeCommand(); if initial.destructive { confirm = true } else { execute() } } catch { validation = error.localizedDescription }
-                }.buttonStyle(.borderedProminent).disabled(!available || store.busy)
+                helpBadge
             }
-        }.padding(26).frame(width: 800, height: 670)
-        .task { arguments = initial.example; terminal = initial.terminal; await loadHelp() }
-        .confirmationDialog("Run \(initial.id)? Check the resource names in the arguments.", isPresented: $confirm, titleVisibility: .visible) { Button("Run", role: .destructive) { execute() } }
+            TextField("Arguments", text: $arguments, prompt: Text("Arguments"), axis: .vertical)
+                .lineLimit(2...4).font(.body.monospaced()).textFieldStyle(.roundedBorder)
+            HStack {
+                TextField("Working directory", text: $directory, prompt: Text("Working directory (optional)")).textFieldStyle(.roundedBorder)
+                Button("Choose…", action: chooseDirectory)
+            }
+            Toggle("Run in Terminal, for interactive input or logs that never end", isOn: $terminal).disabled(operation.terminal)
+            notes
+            if let validation {
+                Label(validation, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange).font(.callout)
+            }
+            OutputPanel(text: help, source: operation.id, followsEnd: false, placeholder: "Reading local help…")
+            HStack {
+                Button("Copy Command", action: copyCommand)
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(terminal ? "Open in Terminal" : "Run", action: attempt)
+                    .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction).disabled(helpState != .verified)
+            }
+        }
+        .padding(22)
+        .frame(width: 760, height: 640)
+        .task { arguments = request.arguments; terminal = operation.terminal; await loadHelp() }
+        .confirmationDialog("Run “\(operation.title)”?", isPresented: $confirm, titleVisibility: .visible) {
+            Button("Run", role: .destructive, action: execute)
+        } message: { Text("This stops services or deletes resources. Check the names in the arguments.") }
+        .animation(.smooth, value: validation)
+    }
+
+    @ViewBuilder private var helpBadge: some View {
+        switch helpState {
+        case .loading:
+            ProgressView().controlSize(.small)
+        case .verified:
+            Label("Help verified", systemImage: "checkmark.seal.fill").foregroundStyle(Color.harbor).font(.callout)
+        case .unavailable:
+            HStack(spacing: 8) {
+                Label("Not available in this CLI", systemImage: "xmark.seal").foregroundStyle(.orange).font(.callout)
+                Button { Task { await loadHelp() } } label: { Image(systemName: "arrow.clockwise") }.buttonStyle(.borderless).help("Read the help again")
+            }
+        }
+    }
+    @ViewBuilder private var notes: some View {
+        if operation.admin {
+            Label("Runs with sudo in Terminal, where macOS asks for your password. Harbor never sees it.", systemImage: "lock")
+                .font(.callout).foregroundStyle(.secondary)
+        }
+        if operation.path == ["k8s", "create"] || operation.path == ["k8s", "write-config"] {
+            Label("Updates your kubeconfig as the official CLI does; check the cluster name.", systemImage: "info.circle")
+                .font(.callout).foregroundStyle(.secondary)
+        }
+    }
+    private func loadHelp() async {
+        helpState = .loading; help = ""
+        do {
+            let text = try await store.read(operation.path + ["--help"], timeout: 10)
+            if NativeHelp.matches(text, path: operation.path) { help = text; helpState = .verified }
+            else { help = "The CLI did not return help for this command. Check the version, engine status or plugins.\n\n" + text; helpState = .unavailable }
+        } catch {
+            help = error.localizedDescription + "\n\nCould not read help for this command. Check the CLI path, version and plugins."
+            helpState = .unavailable
+        }
     }
     private func makeCommand() throws -> Command {
-        var command = store.config.nativeCommand(initial.path + (try ArgumentTokenizer.split(arguments)))
-        guard !command.arguments.isEmpty else { throw HarborError.message("Enter a subcommand or --help.") }
-        if !directory.isEmpty {
-            guard directory.hasPrefix("/"), FileManager.default.fileExists(atPath: directory) else { throw HarborError.message("The working directory does not exist or is not an absolute path.") }
-            command.directory = directory
+        var command = store.config.nativeCommand(operation.path + (try ArgumentTokenizer.split(arguments)))
+        guard !command.arguments.isEmpty else { throw HarborError.message("Enter a subcommand, for example: system status") }
+        let folder = directory.trimmingCharacters(in: .whitespaces)
+        if !folder.isEmpty {
+            var isDirectory: ObjCBool = false
+            guard folder.hasPrefix("/"), FileManager.default.fileExists(atPath: folder, isDirectory: &isDirectory), isDirectory.boolValue else {
+                throw HarborError.message("The working directory must be an existing folder, given as an absolute path.")
+            }
+            command.directory = folder
         }
         return command
     }
-    private func loadHelp() async {
-        available = false
-        do {
-            help = try await Runner.checked(store.config.nativeCommand(initial.path + ["--help"]), timeout: 10)
-            guard NativeHelp.matches(help, path: initial.path) else {
-                help = "The CLI did not return help for this subcommand. Check the version, engine status or plugins.\n\n" + help
-                return
-            }
-            available = true
-        }
-        catch { help = error.localizedDescription + "\n\nCould not read help for this command. Check the CLI path, version and plugins." }
+    private func copyCommand() {
+        do { store.copy(TerminalScript.shellLine(try makeCommand(), admin: operation.admin)); validation = nil }
+        catch { validation = error.localizedDescription }
+    }
+    private func attempt() {
+        do { _ = try makeCommand(); validation = nil } catch { validation = error.localizedDescription; return }
+        if operation.destructive { confirm = true } else { execute() }
     }
     private func execute() {
-        do {
-            let command = try makeCommand(), useTerminal = terminal
+        guard let command = try? makeCommand() else { return }
+        if terminal {
             dismiss()
-            // Let this sheet finish closing before the Activity sheet opens.
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(250))
-                if useTerminal { store.openInTerminal(command, admin: initial.admin) }
-                else { store.perform(initial.title, command: command, timeout: 1800) }
-            }
-        } catch { validation = error.localizedDescription }
+            store.openInTerminal(command, admin: operation.admin, title: operation.title)
+        } else {
+            // Replaces this sheet with the job's output.
+            store.perform(operation.title, command: command, showOutput: true, timeout: 1800)
+        }
+    }
+    private func chooseDirectory() {
+        let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false
+        if panel.runModal() == .OK, let url = panel.url { directory = url.path }
     }
 }
