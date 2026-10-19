@@ -36,17 +36,18 @@ Every command panel first reads the local `--help` and checks that the help belo
 
 ## Getting started
 
-1. Install Apple's official runtime (Apple silicon; Harbor itself needs macOS 27):
+Open `Harbor.app` (macOS 27, Apple silicon). Until the engine runs, the Containers and Images pages show a three-step setup guide; the Engine page keeps it as a checklist afterwards.
 
-   ```sh
-   brew install container
-   ```
+1. **Install Apple Container.** Harbor does not bundle the runtime, but it installs it when you ask:
+   - **Install with Homebrew** (offered when Homebrew is present) runs `brew install container` inside Harbor, with its output in the activity list. No password is needed.
+   - **Download Official Installer** fetches the newest release from [apple/container](https://github.com/apple/container/releases). It only accepts a `.pkg` served from that repository's own release downloads, saves it to Downloads marked as a download (so Gatekeeper checks it), stops if `pkgutil --check-signature` fails, and opens it in Installer. macOS asks for your administrator password there; Harbor never sees it.
+   - **Other Options** runs the Homebrew install in Terminal (for setups where it asks for a password), opens the releases page, or lets you point Settings at an existing CLI.
 
-   You can also use the [official Apple installer](https://github.com/apple/container/releases). Harbor does not bundle or auto-install the system runtime.
+   Harbor finds the CLI in `/opt/homebrew/bin`, `/usr/local/bin` or `/usr/bin`, including one installed outside Harbor while it runs.
+2. **Start the engine.** After an install from Harbor, the engine starts by itself; otherwise click **Start Engine**. The first start downloads the recommended Linux kernel.
+3. **Run your first container.** Press **⌘N**, or pick a native action from any page.
 
-2. Open `Harbor.app`. It finds the CLI in `/opt/homebrew/bin`, `/usr/local/bin` or `/usr/bin`; for anything else, set the path in **Settings** (⌘,).
-3. Click **Start Engine**. The first run lets the official CLI download the recommended kernel.
-4. Press **⌘N** to run a container, or pick a native action from any page. Arguments in the command panel are examples (row actions prefill the resource you picked); check names and paths before running. Single and double quotes are supported; there is no shell expansion, piping or redirection.
+Arguments in the command panel are examples (row actions prefill the resource you picked); check names and paths before running. Single and double quotes are supported; there is no shell expansion, piping or redirection.
 
 All native pages read state directly from `container`. Quitting the app does not stop Apple Container or any containers. The Terminal entry runs `container exec -it … /bin/sh` in the system Terminal, which needs `/bin/sh` in the image; first use may trigger a macOS automation permission prompt.
 

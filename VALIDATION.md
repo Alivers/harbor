@@ -30,6 +30,14 @@ Same date. The app layer was rewritten (split view, glass activity capsule, conc
 - `Store.swift` (now `@Observable`) was type-checked on Linux against stand-ins for the AppKit symbols it uses. It was exercised with fake executables: concurrent jobs, refusal of a second job on the same resource, banners for failures and successes, cancel, output shown only when requested, and `--help`-gated features.
 - **The redesigned UI has not been launched or looked at.** Layout, Liquid Glass rendering, animations and the sheet hand-offs need a run on macOS 27.
 
+## Update: guided installation
+
+Same date, on Linux:
+
+- **All 22 core checks pass.** The new check ensures the installer package is only taken from apple/container's own HTTPS release downloads: it rejects other repositories, plain HTTP, and the unsigned package when a signed one exists, and returns nothing for an error response.
+- The Homebrew route ran end to end against fake `brew` and `container` executables in a Linux container. The steps were: missing CLI → `brew install container` with streamed output → CLI found and adopted → `system start --enable-kernel-install` → engine running. Starting an installed but stopped engine was also run. `Setup.swift` was type-checked against stand-ins for sysctl, quarantine keys and URLSession.
+- **Not exercised:** a real Homebrew install, the GitHub download, `pkgutil`, quarantine, the Installer hand-off and its wait, and the setup guide's appearance. These need a Mac with macOS 27.
+
 ## Not yet verified
 
 Apple Container / Socktainer are not formally installed on the test machine, so none of the following count as completed end-to-end tests:

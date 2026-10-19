@@ -7,6 +7,7 @@ import HarborCore
 enum EngineState: Equatable {
     case checking, missingCLI, stopped(String), running
     var isRunning: Bool { self == .running }
+    var isInstalled: Bool { switch self { case .stopped, .running: true; case .checking, .missingCLI: false } }
 }
 
 /// A catalog command opened in the command sheet, with the arguments to start from.
@@ -111,6 +112,8 @@ enum SheetRoute: Identifiable {
         repeat { refreshQueued = false; await readNativeState() } while refreshQueued
     }
     private func readNativeState() async {
+        // Picks up a CLI installed since launch, or by a different method than the configured path assumes.
+        if !FileManager.default.isExecutableFile(atPath: config.container), let found = RuntimeConfig.locate("container") { adoptCLI(found) }
         let snapshot = config
         guard FileManager.default.isExecutableFile(atPath: snapshot.container) else { return apply(.missingCLI, snapshot) }
         do {
@@ -131,6 +134,11 @@ enum SheetRoute: Identifiable {
         if containers != rows { containers = rows }
         if images != imageRows { images = imageRows }
         if imageError != failure { imageError = failure }
+    }
+    /// Points Harbor at a newly found CLI.
+    func adoptCLI(_ path: String) {
+        guard config.container != path else { return }
+        config.container = path; save(); helpCache = [:]
     }
     func read(_ arguments: [String], timeout: TimeInterval = 20) async throws -> String {
         try await Runner.checked(config.nativeCommand(arguments), timeout: timeout)

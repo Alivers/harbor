@@ -151,8 +151,16 @@ public struct RuntimeConfig: Codable, Equatable, Sendable {
                 socktainer: String = Self.find("socktainer"), socket: String = Self.defaultSocket) {
         self.docker = docker; self.container = container; self.socktainer = socktainer; self.socket = socket
     }
-    public static func find(_ name: String) -> String {
-        toolDirectories.map { $0 + "/" + name }.first { FileManager.default.isExecutableFile(atPath: $0) } ?? toolDirectories[0] + "/" + name
+    public static func find(_ name: String) -> String { locate(name) ?? toolDirectories[0] + "/" + name }
+    /// The first executable named `name` in `toolDirectories`, if any.
+    public static func locate(_ name: String) -> String? {
+        toolDirectories.map { $0 + "/" + name }.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+    /// Environment for tools Harbor runs directly (container, brew): inherited, with a full PATH.
+    public static var toolEnvironment: [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = searchPath
+        return env
     }
     public var environment: [String: String] {
         var env = ProcessInfo.processInfo.environment
@@ -166,11 +174,7 @@ public struct RuntimeConfig: Codable, Equatable, Sendable {
     public func dockerCommand(_ args: [String], directory: String? = nil) -> Command {
         Command(docker, ["--host", "unix://" + socket] + args, directory: directory, environment: environment)
     }
-    public func nativeCommand(_ args: [String]) -> Command {
-        var nativeEnvironment = ProcessInfo.processInfo.environment
-        nativeEnvironment["PATH"] = Self.searchPath
-        return Command(container, args, environment: nativeEnvironment)
-    }
+    public func nativeCommand(_ args: [String]) -> Command { Command(container, args, environment: Self.toolEnvironment) }
     public func composeCommand(_ project: ComposeProject, _ args: [String]) -> Command {
         dockerCommand(["compose", "--ansi", "never", "--project-directory", project.directory] + project.files.flatMap { ["--file", $0] } + args, directory: project.directory)
     }

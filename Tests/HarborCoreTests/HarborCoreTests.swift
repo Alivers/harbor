@@ -148,6 +148,23 @@ final class HarborCoreTests {
         XCTAssertEqual(Command.quote("=ls"), "'=ls'")
         XCTAssertEqual(Command("/usr/local/bin/container", ["run", "--env", "A=hello world"]).display, "/usr/local/bin/container run --env 'A=hello world'")
     }
+    func testInstallerPackageComesFromOfficialReleases() {
+        func asset(_ owner: String, _ name: String, scheme: String = "https", size: Int = 1) -> String {
+            #"{"name":"\#(name)","browser_download_url":"\#(scheme)://github.com/\#(owner)/container/releases/download/1.5.0/\#(name)","size":\#(size)}"#
+        }
+        func release(_ assets: [String]) -> Data { Data((#"{"tag_name":"1.5.0","assets":["# + assets.joined(separator: ",") + "]}").utf8) }
+        let package = InstallerPackage.parse(release: release([
+            asset("someone", "container-1.5.0-installer-signed.pkg"),
+            asset("apple", "container-1.5.0-installer-unsigned.pkg"),
+            asset("apple", "container-1.5.0-installer-signed.pkg", size: 42),
+            asset("apple", "container-1.5.0.zip")]))
+        XCTAssertEqual(package?.fileName, "container-1.5.0-installer-signed.pkg")
+        XCTAssertEqual(package?.version, "1.5.0"); XCTAssertEqual(package?.size, 42)
+        XCTAssertEqual(InstallerPackage.parse(release: release([asset("apple", "container-1.5.0-installer-unsigned.pkg")]))?.fileName, "container-1.5.0-installer-unsigned.pkg")
+        XCTAssertNil(InstallerPackage.parse(release: release([asset("someone", "container.pkg")])))
+        XCTAssertNil(InstallerPackage.parse(release: release([asset("apple", "container.pkg", scheme: "http")])))
+        XCTAssertNil(InstallerPackage.parse(release: Data(#"{"message":"API rate limit exceeded"}"#.utf8)))
+    }
     func testTerminalScriptQuotesEveryPart() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("harbor it's \(UUID().uuidString)").path
         try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
@@ -233,6 +250,7 @@ func XCTAssertThrowsError<T>(_ expression: @autoclosure () throws -> T) {
         try suite.testRunArgumentsKeepEnvironmentLiteral()
         suite.testTextTablesAndResourceHelpers()
         try await suite.testShellQuoteRoundTrip()
+        suite.testInstallerPackageComesFromOfficialReleases()
         try await suite.testTerminalScriptQuotesEveryPart()
         try await suite.testLargeStdoutAndStderrDoNotDeadlock()
         try await suite.testOutputStreamsWhileRunning()
@@ -240,6 +258,6 @@ func XCTAssertThrowsError<T>(_ expression: @autoclosure () throws -> T) {
         try await suite.testNonzeroExitIsReported()
         try await suite.testTimeoutTerminatesProcess()
         try await suite.testCancellationTerminatesProcess()
-        print("PASS: 21 checks — native JSON, registry ports, image references, native isolation, tokenizer, command catalog, scoped help, Docker socket isolation, Compose paths, Compose file order, JSON, literal arguments, text tables, shell quoting, Terminal script, large output, streaming output, output limit, errors, timeout, cancellation")
+        print("PASS: 22 checks — native JSON, registry ports, image references, native isolation, tokenizer, command catalog, scoped help, Docker socket isolation, Compose paths, Compose file order, JSON, literal arguments, text tables, shell quoting, installer source, Terminal script, large output, streaming output, output limit, errors, timeout, cancellation")
     }
 }
