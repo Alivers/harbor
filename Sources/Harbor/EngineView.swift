@@ -12,7 +12,7 @@ struct EngineSetupView: View {
             ContentUnavailableView {
                 Label("Install Apple Container", systemImage: "shippingbox")
             } description: {
-                Text("Harbor manages Apple's official container runtime, which needs Apple silicon and macOS 26 or later. Install it, then Harbor connects on its own.")
+                Text("Harbor manages Apple's official container runtime. Install it, then Harbor connects on its own.")
             } actions: {
                 Button("Copy “brew install container”") { store.copy("brew install container") }.buttonStyle(.borderedProminent)
                 Link("Download the Installer", destination: URL(string: "https://github.com/apple/container/releases")!)
@@ -89,26 +89,29 @@ struct EngineView: View {
     } }
 }
 
+/// Edits a draft so half-typed paths never reach the running app; Apply or closing the window commits it.
 struct SettingsView: View {
     @Environment(Store.self) private var store
+    @ViewState<RuntimeConfig?> private var draft: RuntimeConfig?
     var body: some View {
-        @Bindable var store = store
+        let edited = Binding(get: { draft ?? store.config }, set: { draft = $0 })
         Form {
             Section {
-                PathField(title: "container CLI", path: $store.config.container)
+                PathField(title: "container CLI", path: edited.container)
             } header: { Text("Apple Container") } footer: { Text("Every native action runs this executable directly, never through a shell.") }
             Section {
-                PathField(title: "Docker CLI", path: $store.config.docker)
-                PathField(title: "Socktainer", path: $store.config.socktainer)
-                TextField("Socket", text: $store.config.socket).font(.callout.monospaced())
+                PathField(title: "Docker CLI", path: edited.docker)
+                PathField(title: "Socktainer", path: edited.socktainer)
+                TextField("Socket", text: edited.socket).font(.callout.monospaced())
             } header: { Text("Docker and Compose (optional)") } footer: {
                 Text("Docker commands always use this socket explicitly, and inherited Docker context variables are cleared.")
             }
             Section {
                 HStack {
-                    Button("Detect Automatically") { store.detectTools() }
+                    Button("Detect Automatically") { draft = RuntimeConfig(socket: edited.wrappedValue.socket) }
                     Spacer()
-                    Button("Apply") { store.applySettings() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                    Button("Apply", action: apply).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                        .disabled(draft == nil || draft == store.config)
                 }
             } footer: {
                 if store.bridgeOwned { Text("Stop the compatibility service before changing paths.") }
@@ -117,7 +120,11 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .disabled(store.bridgeOwned)
         .frame(width: 560, height: 480)
-        .onDisappear { store.applySettings() }
+        .onDisappear(perform: apply)
+    }
+    private func apply() {
+        if let draft { store.applySettings(draft) }
+        draft = nil
     }
 }
 

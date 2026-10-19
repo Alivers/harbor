@@ -2,7 +2,16 @@
 
 A native Swift + SwiftUI manager for Apple Container. **Native features come first; Docker / Compose is only an optional extension.** No Electron, WebView or Node.js.
 
-This is the **0.2 preview**. The app calls the official `container` CLI directly and does not implement its own virtual machine, container engine or Docker API.
+This is the **0.3 preview** and requires **macOS 27** on Apple silicon. The app calls the official `container` CLI directly and does not implement its own virtual machine, container engine or Docker API.
+
+## Using Harbor
+
+- **Native macOS 27 layout.** A sidebar groups Workloads, Resources, Environments and System. Actions live in the toolbar, search sits in the toolbar's search field, and details open in an inspector. Navigation and toolbars use Liquid Glass from the system. The only custom glass is the floating activity capsule; content stays on plain backgrounds so it remains easy to read.
+- **Nothing blocks.** Starting, stopping, pulling or composing runs in the background, and several jobs can run at once; only the resource a job changes is locked. The capsule at the bottom of the window shows what is running, then how it ended. A failure stays until you dismiss it or open its output. The clock button in the toolbar lists recent jobs with their full output.
+- **Output where it matters.** Logs, inspect output, reports and raw catalog commands open their output right away. Lifecycle actions don't open anything unless they fail.
+- **Containers.** Filter by running or stopped. Click a published port to open it in the browser. Rows show actions on hover, and right-click gives you the rest. Double-click a row, or use the inspector button, to see details, recent logs (followed live when the CLI supports `--follow`) and inspect JSON. Deleting a running container stops it first, after you confirm.
+- **First run.** If the CLI is missing, Harbor offers the install command and the installer link. If the engine is stopped, a single button starts it.
+- **Keyboard.** ⌘N runs a container, ⇧⌘P pulls an image, ⌘O imports a Compose project, ⌘R refreshes, and ⌘F inside any output finds text.
 
 ## Feature coverage
 
@@ -10,10 +19,10 @@ Checked against the actual help output of the official Apple Container **1.5.0**
 
 | Category | Current implementation |
 | --- | --- |
-| Containers | Native JSON list, search, create form, start/stop, delete confirmation, details, logs, stats and a Terminal entry; advanced options, copy, export and prune go through the command panel |
-| Images | Native list, pull, delete; push, tag, save, load, inspect and prune go through the command panel |
+| Containers | Native JSON list with filter and search, run form, start/stop/restart, delete (stopping first), port links, inspector with details, live logs and inspect JSON, Terminal shell; copy, export, stats and prune go through the command panel |
+| Images | Native list with search, background pull, run from image, multi-select delete; push, tag, save, load, inspect and prune go through the command panel |
 | Build | BuildKit status, image builds, builder start/stop/delete |
-| Networks, volumes | Native lists read from the CLI; create, inspect, delete and prune entries |
+| Networks, volumes | Lists read from the CLI and shown as tables, with inspect/delete per row; create and prune entries |
 | Registries | Login list, log in/out; interactive credentials are entered in Terminal |
 | Linux machines | Create, run, list, inspect, configure, default machine, logs, stop and delete |
 | System | Engine start/stop, status, version, logs, disk usage, DNS, kernel, properties |
@@ -21,13 +30,13 @@ Checked against the actual help output of the official Apple Container **1.5.0**
 | Native commands | Searchable command catalog, custom arguments, working directory, live local help, Terminal mode |
 | Compose (optional) | Multi-file import with override order, validate, build, up, stop, logs and status, plus each project's containers listed in place; runs the real Docker CLI / Compose against a dedicated Socktainer socket |
 
-**"Has an entry point" does not mean every command has its own graphical form.** The network, volume and machine pages currently show the official table output plus a generic argument panel; advanced options are passed straight through to the CLI. There is no embedded PTY terminal, file browser or live resource chart yet. Command output streams into the Activity sheet while it runs; use Terminal for interactive commands or logs that never end.
+**"Has an entry point" does not mean every command has its own graphical form.** The network, volume, machine, registry and Kubernetes pages show the official CLI listing as a table, with per-row actions and a generic argument panel; advanced options are passed straight through to the CLI. If a listing is not an aligned table, it is shown verbatim. There is no embedded PTY terminal, file browser or live resource chart yet. Use Terminal for interactive commands.
 
 Every command panel first reads the local `--help` and checks that the help belongs to the selected subcommand. An unsupported version, a plugin that is not running or a missing CLI shows an error and disables execution. A custom command entry is still available for commands added in future versions.
 
 ## Getting started
 
-1. Install Apple's official runtime. Requires Apple Silicon and macOS 26 or later:
+1. Install Apple's official runtime (Apple silicon; Harbor itself needs macOS 27):
 
    ```sh
    brew install container
@@ -35,9 +44,9 @@ Every command panel first reads the local `--help` and checks that the help belo
 
    You can also use the [official Apple installer](https://github.com/apple/container/releases). Harbor does not bundle or auto-install the system runtime.
 
-2. Open `Harbor.app` and confirm the CLI path under **Runtime**. Common paths are `/usr/local/bin/container` and `/opt/homebrew/bin/container`.
+2. Open `Harbor.app`. It finds the CLI in `/opt/homebrew/bin`, `/usr/local/bin` or `/usr/bin`; for anything else, set the path in **Settings** (⌘,).
 3. Click **Start Engine**. The first run lets the official CLI download the recommended kernel.
-4. Use **Create Container**, or pick a native action from a category. Arguments in the command panel are examples; replace resource names and paths before running. Single and double quotes are supported; there is no shell expansion, piping or redirection.
+4. Press **⌘N** to run a container, or pick a native action from any page. Arguments in the command panel are examples (row actions prefill the resource you picked); check names and paths before running. Single and double quotes are supported; there is no shell expansion, piping or redirection.
 
 All native pages read state directly from `container`. Quitting the app does not stop Apple Container or any containers. The Terminal entry runs `container exec -it … /bin/sh` in the system Terminal, which needs `/bin/sh` in the image; first use may trigger a macOS automation permission prompt.
 
@@ -59,7 +68,7 @@ brew install socktainer docker docker-compose
 
 Socktainer must be compatible with your Apple Container version; do not skip its version check. It provides partial Docker API compatibility, and Harbor does not promise full Docker Engine behavior.
 
-- Expand the compatibility settings under **Compose · Optional** to see diagnostics and configured paths and to start Socktainer.
+- On the **Compose** page, **Start Service** launches Socktainer, and **Setup and diagnostics** shows the configured paths and checks.
 - Install the Compose plugin as `brew info docker-compose` describes, merging `cliPluginsExtraDirs` into your existing Docker config without overwriting credentials.
 - In-app Docker commands always pass the dedicated Unix socket and clear inherited Docker context/TLS environment variables; the default Docker context is never switched automatically.
 - After clicking **Create harbor-apple Context** you can run `docker --context harbor-apple compose up -d`.
@@ -70,7 +79,7 @@ The bundled `Examples/web-stack/compose.yaml` is an optional nginx + Redis examp
 
 ## Build and checks
 
-With the Swift 6+ Command Line Tools or Xcode installed, run from the project directory:
+With Xcode 27 or the matching Command Line Tools (macOS 27 SDK, Swift 6.2 or later) installed, run from the project directory:
 
 ```sh
 bash scripts/build-app.sh
@@ -103,7 +112,8 @@ Optional Compose → Docker CLI → dedicated Socktainer socket → Apple Contai
 - The only shell interface is Terminal; each argument is quoted individually and the working directory is escaped separately.
 - The main views parse the official JSON; unsupported JSON shapes produce an explicit error instead of fake empty resources.
 - Commands run in the background; stdout and stderr are written to separate temporary files to avoid pipe blocking.
-- One user-triggered command runs at a time. Its output streams into the Activity sheet line by line, and failures are reported there too.
+- User-triggered commands run as background jobs, concurrently except on the same resource. Output streams in line by line and stays in the Activity list.
+- Views observe only the state they read (`@Observable`), the 6-second refresh skips unchanged data and pauses while Harbor is in the background, and output views append text instead of redrawing it.
 - Timeouts and cancellation are supported; canceling the CLI does not guarantee that work already submitted to the engine is undone, so refresh to check state.
 - A command that writes more than 2 MB is stopped and you are asked to use Terminal. The service log view shows the last 256 KB.
 - The app stores tool paths and Compose file paths; it does not persist environment variables entered when creating a container. Logs and inspect output may contain sensitive data; review them before sharing.

@@ -45,7 +45,6 @@ struct ActivityCapsule: View {
                 .glassEffectID("activity", in: glass)
             }
         }
-        .transition(.move(edge: .bottom).combined(with: .opacity))
         .animation(.smooth(duration: 0.35), value: running.map { $0.id })
         .animation(.smooth(duration: 0.35), value: store.banner?.id)
         .popover(isPresented: $showList, arrowEdge: .top) { ActivityList().frame(width: 380) }

@@ -4,7 +4,7 @@ Guidance for AI coding agents working in this repository.
 
 ## What this is
 
-Harbor is a native Swift + SwiftUI macOS GUI for Apple Container (0.2 preview). It never implements a VM, engine, or Docker API itself: every action shells out (without a shell) to the official `container` CLI. Docker / Compose support is an optional extension that talks to a Socktainer Unix socket. No external Swift package dependencies, no Electron/WebView/Node.
+Harbor is a native Swift + SwiftUI macOS GUI for Apple Container (0.3 preview, macOS 27). It never implements a VM, engine, or Docker API itself: every action shells out (without a shell) to the official `container` CLI. Docker / Compose support is an optional extension that talks to a Socktainer Unix socket. No external Swift package dependencies, no Electron/WebView/Node.
 
 ## Language: English only
 
@@ -18,7 +18,9 @@ This holds even when the request is written in another language: translate, don'
 
 ## Commands
 
-The app is macOS only (SwiftUI, AppKit, `codesign`). Requires Swift 6 toolchain (Command Line Tools is enough, Xcode not required). `HarborCore` and `HarborChecks` also build and run on Linux, so core changes can be verified without a Mac; keep `HarborCore` free of SwiftUI/AppKit.
+The app is macOS only (SwiftUI, AppKit, `codesign`). The minimum is macOS 27 (`Package.swift`, and `LSMinimumSystemVersion` in `scripts/build-app.sh`), so building needs the macOS 27 SDK: Xcode 27 or its Command Line Tools. `HarborCore` and `HarborChecks` also build and run on Linux, so core changes can be verified without a Mac; keep `HarborCore` free of SwiftUI/AppKit.
+
+CI (`.github/workflows/ci.yml`) builds `Harbor.app` on a macOS runner, runs `HarborChecks` on Linux (and on macOS once the runner is on 27), and runs the Docker adapter check. Without a Mac, CI is the only way to compile the SwiftUI target, so push and read its result before calling UI work done.
 
 ```sh
 bash scripts/build-app.sh                 # release build → ./Harbor.app (ad-hoc signed, not notarized)
@@ -51,12 +53,22 @@ optional Compose → Docker CLI --host unix://<socktainer socket> → Socktainer
 **`HarborCore`** (library, UI-free, everything testable lives here):
 - `Command.swift`: `Command` (executable + argv array, never a shell string; `quote` leaves safe words bare), `TerminalScript` (the AppleScript/shell line for Terminal hand-off), `Runner.run/checked` (runs off-main via `Task.detached`, writes stdout/stderr to separate temp files to avoid pipe deadlock, polls for timeout/cancellation then SIGTERM→SIGKILL, stops a command once either stream passes 2 MB, optionally streams complete lines to `onOutput` about every 250 ms), and `RuntimeConfig` (tool paths + socket; builds `nativeCommand`, `dockerCommand`, `composeCommand`).
 - `Native.swift`: `NativeParser` (parses `container ... --format json`, including the legacy shape where `status` is a string instead of an object; throws on unknown shapes rather than returning empty lists), `ArgumentTokenizer` (POSIX-style quote/escape splitting only, no expansion), `NativeHelp.matches` (confirms `--help` output belongs to the requested subcommand, not the root fallback; k8s plugin prints `USAGE: k8s ...`), and `NativeOperation.all`, the catalog of all 67 leaf CLI commands (`terminal`/`destructive`/`admin` flags; `groups` and `operations(in:)` for the UI).
-- `Models.swift`: `ContainerRow` (native rows, and Compose service rows decoded from Docker's JSON keys via `CodingKeys`), `ImageRow`/`ImageReference` (keeps registry ports and digests out of the tag; `isValid` for image fields), `JSONRows` (Docker JSON array or JSON-lines), `ComposeProject` (`directory` is derived from the first file, so reordering moves it), `ComposeAction` (typed Compose buttons → argv), `RunOptions` (create-container form → argv with validation).
+- `Models.swift`: `ContainerRow` (native rows, and Compose service rows decoded from Docker's JSON keys, including `Publishers`) with `PortMapping`s (browser `url` per published TCP port), `ImageRow`/`ImageReference` (keeps registry ports and digests out of the tag; `isValid` for image fields), `JSONRows` (Docker JSON array or JSON-lines), `ComposeProject` (`directory` is derived from the first file, so reordering moves it), `ComposeAction` (typed Compose buttons → argv), `RunOptions` (Run Container form → argv; `problem` is the inline validation message), `TextTable` (column-aligned CLI listings → rows, nil when not aligned), `JSONText.pretty`.
 
-**`Harbor`** (executable, SwiftUI/AppKit):
-- `Store.swift`: the single `@MainActor ObservableObject`. `run(_:_:)` is the one path for user-triggered work (`perform` wraps it for a single command): only one job runs at a time (`busy`), output streams into the Activity sheet (`output`), failures are reported there (`outputFailed`, no separate alert), then `refresh()` re-reads containers/images and `refreshServices()` re-reads Compose projects' containers. `ContentView` also polls `refresh()` every 8 s; a refresh requested mid-read queues one more pass. Async work snapshots `config` and discards results if it changed meanwhile. Persists only `RuntimeConfig` and Compose project paths in `UserDefaults`. Also owns the Socktainer process it starts (`startBridge`/`stopOwnedBridge`; stopped when it fails to become ready and, via a `willTerminate` observer in `init`, on app quit even if the window is closed) and Terminal hand-off via `osascript`.
-- `HarborApp.swift`: app scene, sidebar `Page` enum (`group` maps a page to its catalog group for the "Native Actions" menu), containers/images/Compose pages, settings, create/pull/output sheets.
-- `NativeViews.swift`: generic pages for build/network/volume/machine/registry/k8s (`NativeSection` shows raw CLI table output, not parsed), the searchable command catalog, and `NativeOperationSheet` (edit args, load and verify local `--help`, enable Execute only if help matched, confirm destructive ops, optionally run in Terminal; `system dns create/delete` run with `sudo` in Terminal).
+**`Harbor`** (executable, SwiftUI/AppKit, one `Window` scene):
+- `Store.swift`: the single `@MainActor @Observable` store (views read it with `@Environment(Store.self)`), plus `Job`, `EngineState`, `SheetRoute` and `NativeRequest`.
+  - `run(_:subject:showOutput:_:)` is the one path for user-triggered work (`perform` wraps it for one command, `stream(_:into:timeout:)` runs a command inside a job). Each `Job` is its own `@Observable` object, so streamed output redraws only the views showing that job.
+  - Jobs run concurrently. A job with a `subject` (container ID, `"image <ref>"`, project ID, `"engine"`, `"bridge"`) refuses to start while another job on that subject runs, and `isBusy(_:)` disables the matching controls.
+  - When a job ends, `banner` drives the activity capsule (failures stay, successes clear after 4 s), `changeCount` tells raw listings to reload, and `refresh()`/`refreshServices()` re-read state.
+  - `present(_:)` is the only way to show a sheet; it closes the current one first, since macOS shows one at a time.
+  - `poll()` refreshes every 6 s while the app is active; `apply` only reassigns values that changed, and a refresh requested mid-read queues one more pass. Async work snapshots `config` and discards results if it changed meanwhile.
+  - Persists only `RuntimeConfig` and Compose project paths in `UserDefaults`. Owns the Socktainer process it starts (`startBridge`/`stopOwnedBridge`; stopped when it fails to become ready and, via a `willTerminate` observer in `init`, on quit even if the window is closed) and Terminal hand-off via `osascript`. `help(for:)`/`supports(_:flag:)` cache local `--help` to gate optional features such as log following.
+- `HarborApp.swift`: app scene, menu commands and keyboard shortcuts, `Color.harbor`, the `ViewState` alias.
+- `RootView.swift`: `NavigationSplitView`, the `Page` enum (`group` maps a page to its catalog group) and sidebar sections, sheet routing, polling, and the overlay that hosts the activity capsule.
+- `ActivityViews.swift`: the Liquid Glass activity capsule, the Activity popover and `JobOutputSheet`.
+- `ContainersView.swift`, `ImagesView.swift`, `RunContainerSheet.swift` (with `PullImageSheet` in the images file), `ComposeView.swift`, `EngineView.swift` (also `EngineSetupView` for first-run states and `SettingsView`).
+- `NativeViews.swift`: `ResourceView` for build/network/volume/machine/registry/k8s (the CLI listing parsed with `TextTable`, per-row actions from `Page.rowActions` that prefill the resource name via `NativeOperation.example(naming:)`), the command catalog, and `NativeOperationSheet` (edit args, load and verify local `--help`, enable Run only if the help matched, confirm destructive ops, optionally run in Terminal; `system dns create/delete` run with `sudo` in Terminal).
+- `Components.swift`: `LogTextView`/`OutputPanel` (NSTextView-backed output that appends incrementally and follows the end), `PortLinks`, `StateBadge`, `RowIcon`, `EntryListEditor`, and the `card()` modifier.
 
 ## Invariants to preserve
 
@@ -68,8 +80,15 @@ optional Compose → Docker CLI --host unix://<socktainer socket> → Socktainer
 
 ## Keeping the catalog in sync
 
-`NativeOperation.all` entries must stay in the literal form `.init("group", "title", "sub command", ...)`: `scripts/check-native-catalog.py` extracts command paths from `Native.swift` with a regex on that form. Group names are matched as strings by the UI (`NativeSection(group:)`, `Page.group`, which returns `Page.rawValue`, the sidebar label) and by `testNativeCatalogIncludesAllFeatureGroups`. The timeout/cancel/output-limit tests match on wording in `Runner`'s error messages, and `scripts/check-docker-adapter.py` mirrors the `compose ps` arguments in `ComposeProject.serviceQuery`. When adding or removing a command, also update the table in `FEATURES.md` and the 67-command counts in `README.md`/`FEATURES.md`/`VALIDATION.md`. `VALIDATION.md` records what was actually verified versus only help-checked; don't claim end-to-end runtime verification there unless it was done.
+`NativeOperation.all` entries must stay in the literal form `.init("group", "title", "sub command", ...)`: `scripts/check-native-catalog.py` extracts command paths from `Native.swift` with a regex on that form. Group names are matched as strings by the UI (`Page.group`, `NativeActionsMenu(group:)`, the Engine page's `"System"` tiles) and by `testNativeCatalogIncludesAllFeatureGroups`. `Page.rowActions` names catalog IDs whose examples must end with the resource name. The timeout/cancel/output-limit tests match on wording in `Runner`'s error messages, and `scripts/check-docker-adapter.py` mirrors the `compose ps` arguments in `ComposeProject.serviceQuery`. When adding or removing a command, also update the table in `FEATURES.md` and the 67-command counts in `README.md`/`FEATURES.md`/`VALIDATION.md`. `VALIDATION.md` records what was actually verified versus only help-checked; don't claim end-to-end runtime verification there unless it was done.
+
+## UI conventions
+
+- Use native structure first (split view, toolbar, `searchable`, inspector, `ContentUnavailableView`, grouped `Form`); it picks up Liquid Glass and platform behavior for free. Custom glass (`glassEffect`, `GlassEffectContainer`) is for floating controls only, such as the activity capsule; content uses plain fills (`card()`).
+- Lifecycle actions run as quiet jobs with a `subject`; only commands whose output is the point pass `showOutput: true`.
+- Animate state changes with `.animation(_:value:)` scoped to the value that changed, not global animations.
+- Long or growing text goes through `OutputPanel`, never a giant `Text`.
 
 ## Code style
 
-Match the existing dense style: short type bodies, multiple statements per line with `;`, long single-line SwiftUI modifier chains. Language mode is Swift 5 (`swiftLanguageModes: [.v5]`) on the Swift 6 toolchain, min macOS 14. Views use the `ViewState<T>` alias for `SwiftUI.State` (defined in `HarborApp.swift`) to avoid ambiguity with SDKs that export a `State` macro; use it for new `@State` properties.
+Compact but readable: short type bodies, `;` only for trivially related statements, and break modifier chains across lines once they stop fitting comfortably. Keep views small and split by page or concern. Language mode is Swift 5 (`swiftLanguageModes: [.v5]`) on the Swift 6 toolchain, min macOS 27. Views use the `ViewState<T>` alias for `SwiftUI.State` (defined in `HarborApp.swift`) to avoid ambiguity with SDKs that export a `State` macro; use it for new `@State` properties and spell out the property type when the initial value is an implicit member (`@ViewState<Tab> private var tab: Tab = .overview`).

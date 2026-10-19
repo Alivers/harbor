@@ -89,12 +89,10 @@ enum SheetRoute: Identifiable {
         UserDefaults.standard.set(try? JSONEncoder().encode(projects), forKey: "projects")
     }
     /// Applies edited settings: persists them, forgets cached help and reconnects.
-    func applySettings() {
-        save(); helpCache = [:]
+    func applySettings(_ edited: RuntimeConfig) {
+        guard edited != config else { return }
+        config = edited; save(); helpCache = [:]
         Task { await refresh(); await refreshCompatibility() }
-    }
-    func detectTools() {
-        config = RuntimeConfig(socket: config.socket); applySettings()
     }
 
     // MARK: Native state

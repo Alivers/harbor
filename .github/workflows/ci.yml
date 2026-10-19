@@ -30,6 +30,19 @@ jobs:
             echo "Runner is older than macOS 27: HarborChecks built but not run here."
           fi
 
+  macos-27:
+    name: macOS 27 app build and core checks
+    runs-on: macos-27
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Toolchain
+        run: sw_vers && xcodebuild -version && xcrun --sdk macosx --show-sdk-version && swift --version
+      - name: Build Harbor.app
+        run: HARBOR_BUILD_DIR="$RUNNER_TEMP/build" bash scripts/build-app.sh
+      - name: Core checks
+        run: swift run --scratch-path "$RUNNER_TEMP/build" HarborChecks
+
   linux-core:
     name: Core checks on Linux
     runs-on: ubuntu-latest

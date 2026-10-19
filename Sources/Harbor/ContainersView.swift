@@ -89,6 +89,8 @@ struct ContainersView: View {
         Divider()
         Button("Show Logs") { selection = c.id; tab = .logs; showInspector = true }
         Button("Show Details") { selection = c.id; tab = .overview; showInspector = true }
+        Button("Show Stats") { store.perform("Stats for \(c.name)", command: store.config.nativeCommand(["stats", "--no-stream", c.id]), showOutput: true) }
+            .disabled(!c.running)
         ForEach(c.portMappings.compactMap(\.url), id: \.self) { url in Link("Open \(url.host() ?? ""):\(url.port ?? 0)", destination: url) }
         Button("Copy ID") { store.copy(c.id) }
         Divider()
