@@ -116,3 +116,7 @@ Runtime references: [Apple Container 1.5.0](https://github.com/apple/container/r
 See `VALIDATION.md`. Compilation, the native command catalog, local help, process invocation and parsing have been checked. The runtime is not installed on the test machine, so real containers, networks, volumes, Linux machines, Kubernetes and Compose still need end-to-end verification. Command entry coverage should not be read as full production readiness.
 
 Images, volumes, databases and credentials from OrbStack are not migrated automatically. Before switching for real, verify data persistence, networking and builds with your own projects.
+
+## License
+
+[MIT](LICENSE)
