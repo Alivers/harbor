@@ -1,0 +1,14 @@
+name: harbor-smoke
+services:
+  web:
+    image: nginx:alpine
+    ports:
+      - "127.0.0.1:18080:80"
+    mem_limit: 256m
+  cache:
+    image: redis:alpine
+    mem_limit: 256m
+    volumes:
+      - cache-data:/data
+volumes:
+  cache-data:

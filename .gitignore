@@ -1,0 +1,4 @@
+.build/
+.swiftpm/
+Harbor.app/
+.DS_Store
