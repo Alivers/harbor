@@ -33,7 +33,7 @@ struct RuntimeView: View {
             }
             GroupBox("System Tools") {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 12) {
-                    ForEach(NativeOperation.all.filter { $0.group == "System" }) { op in
+                    ForEach(NativeOperation.operations(in: "System")) { op in
                         Button { store.nativeOperation = op } label: { HStack { Image(systemName: op.destructive ? "exclamationmark.circle" : "gearshape"); Text(op.title); Spacer(); Image(systemName: "chevron.right").font(.caption2) }.padding(9) }.buttonStyle(.plain).disabled(store.busy)
                     }
                 }.padding(8)
@@ -55,7 +55,7 @@ struct NativeSection: View {
             ScrollView(.horizontal) { Text(text.isEmpty ? "No resources." : text).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).padding(20).frame(minHeight: 120, alignment: .topLeading) }.frame(maxWidth: .infinity, alignment: .leading).background(.background, in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(.quaternary))
             Text("Native Actions").font(.headline)
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                ForEach(NativeOperation.all.filter { $0.group == group }) { op in OperationCard(operation: op) }
+                ForEach(NativeOperation.operations(in: group)) { op in OperationCard(operation: op) }
             }
             if group == "Kubernetes" { Text("Creating a cluster pulls node images and merges ~/.kube/config. 1.5.0 has no k8s start; read the local help first. Harbor never creates clusters automatically.").font(.caption).foregroundStyle(.secondary) }
             if group == "Linux Machines" { Text("Machine creation controls the home directory mount. The example uses --home-mount none; choose read-only or read-write sharing as needed.").font(.caption).foregroundStyle(.secondary) }
@@ -87,7 +87,6 @@ struct NativeCatalogView: View {
     @EnvironmentObject var store: Store
     @ViewState<String> private var search = ""
     @ViewState<String> private var raw = "--help"
-    var groups: [String] { var seen = Set<String>(); return NativeOperation.all.map(\.group).filter { seen.insert($0).inserted } }
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Common actions have forms; everything else keeps a native argument entry. Choosing an action reads the local --help, so features are not pinned to one version.").font(.callout).foregroundStyle(.secondary)
@@ -101,8 +100,8 @@ struct NativeCatalogView: View {
                 }.padding(10)
             }
             TextField("Search commands, actions or categories…", text: $search).textFieldStyle(.roundedBorder)
-            ForEach(groups, id: \.self) { group in
-                let ops = NativeOperation.all.filter { $0.group == group && (search.isEmpty || ($0.title + $0.id + $0.group).localizedCaseInsensitiveContains(search)) }
+            ForEach(NativeOperation.groups, id: \.self) { group in
+                let ops = NativeOperation.operations(in: group).filter { search.isEmpty || ($0.title + $0.id + $0.group).localizedCaseInsensitiveContains(search) }
                 if !ops.isEmpty { Text(group).font(.headline).padding(.top, 8); LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) { ForEach(ops) { OperationCard(operation: $0) } } }
             }
         }
@@ -120,7 +119,6 @@ struct NativeOperationSheet: View {
     @ViewState<Bool> private var terminal = false
     @ViewState<Bool> private var confirm = false
     @ViewState<String?> private var validation: String?
-    private var admin: Bool { initial.path.starts(with: ["system", "dns"]) && initial.path.last != "list" }
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack { VStack(alignment: .leading, spacing: 5) { Text(initial.title).font(.title2.weight(.semibold)); Text("container " + initial.id).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary) }; Spacer(); Button("Close") { dismiss() }.keyboardShortcut(.cancelAction) }
@@ -128,7 +126,7 @@ struct NativeOperationSheet: View {
             TextEditor(text: $arguments).font(.system(.body, design: .monospaced)).frame(height: 74).padding(5).overlay(RoundedRectangle(cornerRadius: 7).stroke(.quaternary))
             HStack { TextField("Working directory (optional; use an absolute path)", text: $directory).textFieldStyle(.roundedBorder); Button("Choose…") { let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false; if panel.runModal() == .OK { directory = panel.url?.path ?? "" } } }
             Toggle("Run in Terminal (interactive input / streaming logs)", isOn: $terminal).disabled(initial.terminal)
-            if admin { Text("This native DNS operation needs administrator rights and will ask for authorization with sudo in Terminal.").font(.caption).foregroundStyle(.secondary) }
+            if initial.admin { Text("This native DNS operation needs administrator rights and will ask for authorization with sudo in Terminal.").font(.caption).foregroundStyle(.secondary) }
             if initial.path == ["k8s", "create"] || initial.path == ["k8s", "write-config"] { Text("This updates kubeconfig as the official CLI does; confirm the cluster name in the arguments.").font(.caption).foregroundStyle(.secondary) }
             if let validation { Text(validation).font(.caption).foregroundStyle(.red) }
             HStack { Text("Local Help").font(.headline); Spacer(); Button("Reload") { Task { await loadHelp() } } }
@@ -168,11 +166,12 @@ struct NativeOperationSheet: View {
     }
     private func execute() {
         do {
-            let command = try makeCommand(), useTerminal = terminal, useAdmin = admin
+            let command = try makeCommand(), useTerminal = terminal
             dismiss()
+            // Let this sheet finish closing before the Activity sheet opens.
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(250))
-                if useTerminal { store.openNativeTerminal(command.arguments, directory: command.directory, admin: useAdmin) }
+                if useTerminal { store.openInTerminal(command, admin: initial.admin) }
                 else { store.perform(initial.title, command: command, timeout: 1800) }
             }
         } catch { validation = error.localizedDescription }

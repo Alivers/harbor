@@ -19,9 +19,9 @@ Checked against the actual help output of the official Apple Container **1.5.0**
 | System | Engine start/stop, status, version, logs, disk usage, DNS, kernel, properties |
 | Kubernetes | Official experimental `k8s` plugin: create, delete, list, load-image, write-config |
 | Native commands | Searchable command catalog, custom arguments, working directory, live local help, Terminal mode |
-| Compose (optional) | Multi-file import with override order, validate, build, up, stop, logs and status; runs the real Docker CLI / Compose against a dedicated Socktainer socket |
+| Compose (optional) | Multi-file import with override order, validate, build, up, stop, logs and status, plus each project's containers listed in place; runs the real Docker CLI / Compose against a dedicated Socktainer socket |
 
-**"Has an entry point" does not mean every command has its own graphical form.** The network, volume and machine pages currently show the official table output plus a generic argument panel; advanced options are passed straight through to the CLI. There is no embedded PTY terminal, file browser, live resource chart or streaming output yet. Run commands in Terminal when you need continuous logs or interaction.
+**"Has an entry point" does not mean every command has its own graphical form.** The network, volume and machine pages currently show the official table output plus a generic argument panel; advanced options are passed straight through to the CLI. There is no embedded PTY terminal, file browser or live resource chart yet. Command output streams into the Activity sheet while it runs; use Terminal for interactive commands or logs that never end.
 
 Every command panel first reads the local `--help` and checks that the help belongs to the selected subcommand. An unsupported version, a plugin that is not running or a missing CLI shows an error and disables execution. A custom command entry is still available for commands added in future versions.
 
@@ -79,10 +79,16 @@ swift run HarborChecks
 
 You can also open `Package.swift` in Xcode. There are no external Swift package dependencies. The command-line tests are a standalone executable, so they run with only the Command Line Tools installed; XCTest is not required.
 
+The UI-free `HarborCore` library and its checks also build on Linux with a Swift 6 toolchain, which is handy for CI; the app itself needs macOS:
+
+```sh
+docker run --rm -v "$PWD":/src -w /src swift:6.1-noble swift run HarborChecks
+```
+
 - `HARBOR_BUILD_DIR` sets the build cache directory.
 - `HARBOR_CONFIGURATION=debug` produces a debug build; the script defaults to release.
 - `python3 scripts/check-native-catalog.py` checks the command catalog against the local CLI help; `HARBOR_CONTAINER` selects the executable.
-- `python3 scripts/check-docker-adapter.py` tests the optional Docker adapter; `HARBOR_DOCKER` selects the Docker path.
+- `python3 scripts/check-docker-adapter.py` runs the real Docker CLI and Compose plugin against a fake Engine API to check the `compose ps` JSON the app decodes; `HARBOR_DOCKER` selects the Docker path.
 - The build script produces a locally ad-hoc signed `.app` that is not notarized. Sign it with a developer identity and notarize it before distributing to other Macs.
 
 ## Design and implementation
@@ -97,8 +103,9 @@ Optional Compose → Docker CLI → dedicated Socktainer socket → Apple Contai
 - The only shell interface is Terminal; each argument is quoted individually and the working directory is escaped separately.
 - The main views parse the official JSON; unsupported JSON shapes produce an explicit error instead of fake empty resources.
 - Commands run in the background; stdout and stderr are written to separate temporary files to avoid pipe blocking.
+- One user-triggered command runs at a time. Its output streams into the Activity sheet line by line, and failures are reported there too.
 - Timeouts and cancellation are supported; canceling the CLI does not guarantee that work already submitted to the engine is undone, so refresh to check state.
-- CLI output is shown after the command finishes; output over 2 MB asks you to use Terminal. The service log view shows the last 256 KB.
+- A command that writes more than 2 MB is stopped and you are asked to use Terminal. The service log view shows the last 256 KB.
 - The app stores tool paths and Compose file paths; it does not persist environment variables entered when creating a container. Logs and inspect output may contain sensitive data; review them before sharing.
 
 ## Open-source references

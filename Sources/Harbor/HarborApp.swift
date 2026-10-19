@@ -13,7 +13,6 @@ typealias ViewState<Value> = SwiftUI.State<Value>
             ContentView().environmentObject(store)
                 .frame(minWidth: 1000, minHeight: 680)
                 .tint(Color(red: 0.20, green: 0.70, blue: 0.53))
-                .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in store.cancel(); store.stopOwnedBridge() }
         }
         .defaultSize(width: 1180, height: 790)
         .commands { CommandGroup(after: .newItem) { Button("Import Compose…") { store.importProject() }.keyboardShortcut("o") } }
@@ -41,6 +40,11 @@ private enum Page: String, CaseIterable, Identifiable {
     case .registries: "Manage registry logins."
     case .kubernetes: "Official k8s plugin · experimental; capabilities follow the local version."
     case .commands: "Every native capability, with arguments matching the local help."
+    } }
+    /// The `NativeOperation` group whose actions this page offers; the sidebar label doubles as the group name.
+    var group: String? { switch self {
+    case .containers, .images, .build, .networks, .volumes, .machines, .registries, .kubernetes: rawValue
+    case .commands, .runtime, .projects: nil
     } }
 }
 
@@ -98,11 +102,11 @@ struct ContentView: View {
                     Spacer()
                     if page == .containers { Button { runSheet = true } label: { Label("Create Container", systemImage: "plus") }.buttonStyle(.borderedProminent).disabled(!store.connected || store.busy) }
                     if page == .projects { Button { store.importProject() } label: { Label("Import Project", systemImage: "plus") }.buttonStyle(.borderedProminent) }
-                    if page != .projects && page != .runtime && page != .commands { Button("Native Actions…") { store.nativeOperation = NativeOperation.all.first { $0.group == (page == .registries ? "Registries" : page.rawValue) } }.disabled(store.busy) }
+                    if let group = page.group { Menu("Native Actions") { ForEach(NativeOperation.operations(in: group)) { op in Button(op.title) { store.nativeOperation = op } } }.fixedSize().disabled(store.busy) }
                     if page == .images { Button { pullSheet = true } label: { Label("Pull Image", systemImage: "arrow.down") }.buttonStyle(.borderedProminent).disabled(!store.connected || store.busy) }
                 }.padding(30)
                 if store.busy {
-                    HStack { ProgressView().controlSize(.small); Text(store.operation); Spacer(); Button("View Output") { store.showOutput = true }; Button("Stop Waiting") { store.cancel() } }.font(.caption).padding(12).background(green.opacity(0.08)).padding(.horizontal, 30).padding(.bottom, 16)
+                    HStack { ProgressView().controlSize(.small); Text(store.outputTitle); Spacer(); Button("View Output") { store.showOutput = true }; Button("Stop Waiting") { store.cancel() } }.font(.caption).padding(12).background(green.opacity(0.08)).padding(.horizontal, 30).padding(.bottom, 16)
                 }
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
@@ -131,9 +135,8 @@ struct ContentView: View {
         .sheet(isPresented: $runSheet) { RunSheet().environmentObject(store) }
         .sheet(isPresented: $pullSheet) { PullSheet().environmentObject(store) }
         .sheet(isPresented: $store.showOutput) { OutputSheet().environmentObject(store) }
-        .alert("Operation Failed", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) { Button("OK") { store.error = nil } } message: { Text(store.error ?? "") }
-        .confirmationDialog("Delete container \(deleteTarget?.Names ?? "")? Its writable layer will be lost.", isPresented: Binding(get: { deleteTarget != nil }, set: { if !$0 { deleteTarget = nil } }), titleVisibility: .visible) {
-            Button("Delete Container", role: .destructive) { if let c = deleteTarget { store.perform("Delete Container", command: store.config.nativeCommand(["delete", c.identifier])) }; deleteTarget = nil }
+        .confirmationDialog("Delete container \(deleteTarget?.name ?? "")? Its writable layer will be lost.", isPresented: Binding(get: { deleteTarget != nil }, set: { if !$0 { deleteTarget = nil } }), titleVisibility: .visible) {
+            Button("Delete Container", role: .destructive) { if let c = deleteTarget { store.perform("Delete Container", command: store.config.nativeCommand(["delete", c.id])) }; deleteTarget = nil }
         }
         .confirmationDialog("Delete local image \(deleteImage?.reference ?? "")?", isPresented: Binding(get: { deleteImage != nil }, set: { if !$0 { deleteImage = nil } }), titleVisibility: .visible) {
             Button("Delete Image", role: .destructive) { if let i = deleteImage { store.perform("Delete Image", command: store.config.nativeCommand(["image", "delete", i.reference])) }; deleteImage = nil }
@@ -146,19 +149,19 @@ struct ContentView: View {
             if !store.connected { setupCard }
             else if store.containers.isEmpty { EmptyCard(icon: "shippingbox", title: "Your workspace is ready", detail: "Create your first container, or import an existing Compose project.") }
             else {
-                let rows = store.containers.filter { search.isEmpty || ($0.Names + $0.Image).localizedCaseInsensitiveContains(search) }
+                let rows = store.containers.filter { search.isEmpty || ($0.name + $0.image).localizedCaseInsensitiveContains(search) }
                 if rows.isEmpty { EmptyCard(icon: "magnifyingglass", title: "No matching containers", detail: "Try another name or image.") }
                 ForEach(rows) { c in
                     VStack(alignment: .leading, spacing: 14) {
                         HStack(spacing: 12) {
                             Image(systemName: "shippingbox.fill").font(.title2).foregroundStyle(c.running ? green : .secondary).frame(width: 42, height: 42).background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
-                            VStack(alignment: .leading, spacing: 4) { Text(c.Names).font(.headline); Text(c.Image).font(.caption).foregroundStyle(.secondary) }
+                            VStack(alignment: .leading, spacing: 4) { Text(c.name).font(.headline); Text(c.image).font(.caption).foregroundStyle(.secondary) }
                             Spacer()
-                            Text(c.State).font(.caption.weight(.medium)).foregroundStyle(c.running ? green : .secondary).padding(.horizontal, 9).padding(.vertical, 4).background((c.running ? green : .gray).opacity(0.10), in: Capsule())
-                            Button { store.perform(c.running ? "Stop Container" : "Start Container", command: store.config.nativeCommand([c.running ? "stop" : "start", c.identifier])) } label: { Image(systemName: c.running ? "stop.fill" : "play.fill") }.help(c.running ? "Stop" : "Start")
-                            Menu { Button("Inspect") { store.perform("Container Details", command: store.config.nativeCommand(["inspect", c.identifier])) }; Button("Stats") { store.perform("Stats", command: store.config.nativeCommand(["stats", "--no-stream", c.identifier])) }; Button("Delete…", role: .destructive) { deleteTarget = c }.disabled(c.running) } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton).frame(width: 22)
+                            Text(c.state).font(.caption.weight(.medium)).foregroundStyle(c.running ? green : .secondary).padding(.horizontal, 9).padding(.vertical, 4).background((c.running ? green : .gray).opacity(0.10), in: Capsule())
+                            Button { store.perform(c.running ? "Stop Container" : "Start Container", command: store.config.nativeCommand([c.running ? "stop" : "start", c.id])) } label: { Image(systemName: c.running ? "stop.fill" : "play.fill") }.help(c.running ? "Stop" : "Start")
+                            Menu { Button("Inspect") { store.perform("Container Details", command: store.config.nativeCommand(["inspect", c.id])) }; Button("Stats") { store.perform("Stats", command: store.config.nativeCommand(["stats", "--no-stream", c.id])) }; Button("Delete…", role: .destructive) { deleteTarget = c }.disabled(c.running) } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton).frame(width: 22)
                         }
-                        HStack { Text(c.Status).foregroundStyle(.secondary); if !c.Ports.isEmpty { Text("·"); Text(c.Ports).textSelection(.enabled).lineLimit(2) }; Spacer(); Button("Logs") { store.perform("\(c.Names) · Logs", command: store.config.nativeCommand(["logs", "-n", "300", c.identifier])) }; Button("Terminal ↗") { store.openTerminal(c) }.disabled(!c.running) }.font(.caption)
+                        HStack { Text(c.status).foregroundStyle(.secondary); if !c.ports.isEmpty { Text("·"); Text(c.ports).textSelection(.enabled).lineLimit(2) }; Spacer(); Button("Logs") { store.perform("\(c.name) · Logs", command: store.config.nativeCommand(["logs", "-n", "300", c.id])) }; Button("Terminal ↗") { store.openTerminal(c) }.disabled(!c.running) }.font(.caption)
                     }.padding(18).background(.background, in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(.quaternary)).disabled(store.busy)
                 }
             }
@@ -174,13 +177,24 @@ struct ContentView: View {
                     HStack { Image(systemName: "folder.fill").foregroundStyle(green); Text(project.name).font(.headline); Spacer(); Button("Remove from List") { store.removeProject(project) }.buttonStyle(.borderless).font(.caption) }
                     Text(project.directory).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                     ForEach(Array(project.files.enumerated()), id: \.offset) { index, file in
-                        HStack { Text("\(index + 1). \(URL(fileURLWithPath: file).lastPathComponent)").font(.system(.caption, design: .monospaced)); Spacer(); if index > 0 { Button("Move Up") { if let p = store.projects.firstIndex(where: { $0.id == project.id }) { store.projects[p].files.swapAt(index, index - 1); store.save() } }.font(.caption) } }
+                        HStack { Text("\(index + 1). \(URL(fileURLWithPath: file).lastPathComponent)").font(.system(.caption, design: .monospaced)); Spacer(); if index > 0 { Button("Move Up") { store.moveFileUp(project, at: index) }.font(.caption) } }
                     }
+                    if store.dockerConnected { services(of: project) }
                     Divider()
-                    HStack { ForEach(["Validate", "Start", "Stop", "Logs", "Status", "Build"], id: \.self) { action in Button(action) { store.compose(project, action: action) }.disabled(store.busy || (action != "Validate" && !store.dockerConnected)) }; Spacer(); Button { store.copy(store.config.composeCommand(project, ["up", "--detach"]).display) } label: { Image(systemName: "doc.on.doc") }.help("Copy the full up command") }
+                    HStack { ForEach(ComposeAction.allCases) { action in Button(action.rawValue) { store.compose(project, action) }.disabled(store.busy || (action.needsDocker && !store.dockerConnected)) }; Spacer(); Button { store.copy(store.config.composeCommand(project, ["up", "--detach"]).display) } label: { Image(systemName: "doc.on.doc") }.help("Copy the full up command") }
                 }.padding(20).background(.background, in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(.quaternary))
             }
             Text("Stop keeps containers and volumes. Remove from List only removes this app's project record. Compatibility depends on Socktainer; verify your project before migrating data.").font(.caption).foregroundStyle(.secondary)
+        }
+    }
+    /// The project's containers as `docker compose ps` reports them.
+    @ViewBuilder private func services(of project: ComposeProject) -> some View {
+        switch store.services[project.id] {
+        case .success(let rows)?:
+            if rows.isEmpty { Text("No containers yet. Start creates them.").font(.caption).foregroundStyle(.secondary) }
+            ForEach(rows) { c in HStack(spacing: 8) { Circle().fill(c.running ? green : .secondary).frame(width: 6, height: 6); Text(c.name).font(.system(.caption, design: .monospaced)); Text(c.status).font(.caption).foregroundStyle(.secondary); Spacer(); Text(c.ports).font(.caption).foregroundStyle(.secondary).textSelection(.enabled).lineLimit(1) } }
+        case .failure(let error)?: Text("Could not read services: " + error.localizedDescription).font(.caption).foregroundStyle(.orange).lineLimit(3).textSelection(.enabled)
+        case nil: EmptyView()
         }
     }
     private var imagePage: some View {
@@ -189,7 +203,7 @@ struct ContentView: View {
             if !store.connected { setupCard }
             else if store.images.isEmpty { EmptyCard(icon: "square.3.layers.3d", title: "Start with an image", detail: "Pull nginx, redis or your project's images.") }
             ForEach(store.images.filter { search.isEmpty || $0.reference.localizedCaseInsensitiveContains(search) }) { i in
-                HStack(spacing: 14) { Image(systemName: "square.3.layers.3d").font(.title2).foregroundStyle(green); VStack(alignment: .leading, spacing: 5) { Text(i.Repository).font(.headline); Text(i.Tag + "  ·  " + i.Size).font(.caption).foregroundStyle(.secondary) }; Spacer(); Text(String(i.identifier.prefix(19))).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary); Button { deleteImage = i } label: { Image(systemName: "trash") }.disabled(store.busy) }.padding(20).background(.background, in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(.quaternary))
+                HStack(spacing: 14) { Image(systemName: "square.3.layers.3d").font(.title2).foregroundStyle(green); VStack(alignment: .leading, spacing: 5) { Text(i.repository).font(.headline); Text(i.tag + "  ·  " + i.size).font(.caption).foregroundStyle(.secondary) }; Spacer(); Text(String(i.digest.prefix(19))).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary); Button { deleteImage = i } label: { Image(systemName: "trash") }.disabled(store.busy) }.padding(20).background(.background, in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(.quaternary))
             }
         }
     }
@@ -220,7 +234,7 @@ struct CompatibilityView: View {
                     dependency("Docker CLI", path: store.config.docker)
                     Divider()
                     Text("Run diagnostics to confirm the Compose plugin status.").font(.caption).foregroundStyle(.secondary)
-                    HStack { Button("Start Compatibility Service") { store.startBridge() }.buttonStyle(.borderedProminent).disabled(store.busy || store.bridgeOwned || store.dockerConnected); Button("Diagnostics") { store.diagnostics() }.disabled(store.busy); Button("Service Logs") { store.readBridgeLog() }; if store.bridgeOwned { Button("Stop Compatibility Service") { store.stopOwnedBridge() }.disabled(store.busy) } }
+                    HStack { Button("Start Compatibility Service") { store.startBridge() }.buttonStyle(.borderedProminent).disabled(store.busy || store.bridgeOwned || store.dockerConnected); Button("Diagnostics") { store.diagnostics() }.disabled(store.busy); Button("Service Logs") { store.readBridgeLog() }.disabled(store.busy); if store.bridgeOwned { Button("Stop Compatibility Service") { store.stopOwnedBridge() }.disabled(store.busy) } }
                 }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
             }
             Text(store.connectionMessage).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled).lineLimit(5)
@@ -274,7 +288,7 @@ struct RunSheet: View {
             DisclosureGroup("Advanced Native Options") { VStack(alignment: .leading, spacing: 10) { TextField("Extra run arguments, e.g. --network dev-net --arch arm64", text: $options.extraOptions); TextField("Command inside the container; leave empty for the image default", text: $options.command); Text("Any native container run argument is accepted, with quoting; no shell expansion.").font(.caption).foregroundStyle(.secondary) }.textFieldStyle(.roundedBorder) }
             Text("Environment Variables · one KEY=value per line").font(.caption).foregroundStyle(.secondary)
             TextEditor(text: $options.environment).font(.system(.body, design: .monospaced)).frame(height: 80).border(.quaternary)
-            Text("Port example: 127.0.0.1:8080:80; volume example: /host/path:/container/path").font(.caption).foregroundStyle(.secondary)
+            Text("Port example: 127.0.0.1:8080:80 (separate several with commas); volume example: /host/path:/container/path").font(.caption).foregroundStyle(.secondary)
             if let validation { Text(validation).foregroundStyle(.red).font(.caption) }
             HStack { Spacer(); Button("Cancel") { dismiss() }; Button("Create and Start") { do { let args = try options.arguments(); dismiss(); Task { @MainActor in try? await Task.sleep(for: .milliseconds(250)); store.perform("Create Container", command: store.config.nativeCommand(args), timeout: 1200) } } catch { validation = error.localizedDescription } }.buttonStyle(.borderedProminent) }
         }.padding(28).frame(width: 580)
@@ -285,7 +299,7 @@ struct PullSheet: View {
     @Environment(\.dismiss) var dismiss
     @ViewState<String> private var image = "nginx:alpine"
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) { Text("Pull Image").font(.title2.weight(.semibold)); TextField("registry/repository:tag", text: $image).textFieldStyle(.roundedBorder); HStack { Spacer(); Button("Cancel") { dismiss() }; Button("Pull") { let reference = image.trimmingCharacters(in: .whitespacesAndNewlines); dismiss(); Task { @MainActor in try? await Task.sleep(for: .milliseconds(250)); store.perform("Pull Image", command: store.config.nativeCommand(["image", "pull", reference]), timeout: 1200) } }.buttonStyle(.borderedProminent).disabled(image.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || image.hasPrefix("-") || image.contains(where: \.isWhitespace)) } }.padding(28).frame(width: 480)
+        VStack(alignment: .leading, spacing: 20) { Text("Pull Image").font(.title2.weight(.semibold)); TextField("registry/repository:tag", text: $image).textFieldStyle(.roundedBorder); HStack { Spacer(); Button("Cancel") { dismiss() }; Button("Pull") { let reference = image.trimmingCharacters(in: .whitespacesAndNewlines); dismiss(); Task { @MainActor in try? await Task.sleep(for: .milliseconds(250)); store.perform("Pull Image", command: store.config.nativeCommand(["image", "pull", reference]), timeout: 1200) } }.buttonStyle(.borderedProminent).disabled(!ImageReference.isValid(image.trimmingCharacters(in: .whitespacesAndNewlines))) } }.padding(28).frame(width: 480)
     }
 }
 struct OutputSheet: View {
@@ -293,9 +307,14 @@ struct OutputSheet: View {
     @Environment(\.dismiss) var dismiss
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack { Text(store.outputTitle).font(.title3.weight(.semibold)); Spacer(); if store.busy { ProgressView().controlSize(.small) }; Button("Close") { dismiss() }.keyboardShortcut(.cancelAction) }
-            ScrollView([.horizontal, .vertical]) { Text(store.output).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .topLeading).padding(16) }.background(Color.black.opacity(0.85), in: RoundedRectangle(cornerRadius: 10)).foregroundStyle(Color(white: 0.90))
-            HStack { Text(store.busy ? "Running; output appears when the command finishes. Stop Waiting does not roll back the backend operation." : "Output may contain app logs or environment variables; review it before sharing.").font(.caption).foregroundStyle(.secondary); Spacer(); Button("Copy") { store.copy(store.output) } }
+            HStack { if store.outputFailed { Label("Failed", systemImage: "xmark.octagon.fill").foregroundStyle(.red).font(.callout.weight(.medium)) }; Text(store.outputTitle).font(.title3.weight(.semibold)); Spacer(); if store.busy { ProgressView().controlSize(.small); Button("Stop Waiting") { store.cancel() } }; Button("Close") { dismiss() }.keyboardShortcut(.cancelAction) }
+            ScrollViewReader { proxy in
+                ScrollView([.horizontal, .vertical]) {
+                    VStack(alignment: .leading, spacing: 0) { Text(store.output.isEmpty ? (store.busy ? "Running…" : "Operation results appear here.") : store.output).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .topLeading).padding(16); Color.clear.frame(height: 1).id("end") }
+                }.background(Color.black.opacity(0.85), in: RoundedRectangle(cornerRadius: 10)).foregroundStyle(Color(white: 0.90))
+                .onChange(of: store.output) { _, _ in if store.busy { proxy.scrollTo("end", anchor: .bottom) } }
+            }
+            HStack { Text(store.busy ? "Output streams in as the command writes it. Stop Waiting does not roll back the backend operation." : "Output may contain app logs or environment variables; review it before sharing.").font(.caption).foregroundStyle(.secondary); Spacer(); Button("Copy") { store.copy(store.output) } }
         }.padding(24).frame(width: 820, height: 520)
     }
 }

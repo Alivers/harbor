@@ -29,7 +29,7 @@ public enum NativeParser {
                 return "\(host) → \(target)"
             }.joined(separator: ", ")
             let details = "\(cpus) CPU · \(ByteCountFormatter.string(fromByteCount: memory, countStyle: .memory))" + (addresses.isEmpty ? "" : " · " + addresses)
-            return ContainerRow(identifier: id, Names: id, Image: reference, State: state, Status: details, Ports: published)
+            return ContainerRow(id: id, name: id, image: reference, state: state, status: details, ports: published)
         }
     }
     public static func images(_ text: String) throws -> [ImageRow] {
@@ -42,12 +42,8 @@ public enum NativeParser {
             let digest = descriptor["digest"] as? String ?? reference
             let variants = row["variants"] as? [[String: Any]] ?? []
             let size = variants.reduce(Int64(0)) { $0 + (($1["size"] as? NSNumber)?.int64Value ?? 0) }
-            let lastSlash = reference.lastIndex(of: "/") ?? reference.startIndex
-            let colon = reference.lastIndex(of: ":")
-            let tagged = colon.map { $0 > lastSlash } ?? false
-            let repository = tagged ? String(reference[..<colon!]) : reference
-            let tag = tagged ? String(reference[reference.index(after: colon!)...]) : "latest"
-            return ImageRow(identifier: digest, Repository: repository, Tag: tag, Size: size > 0 ? ByteCountFormatter.string(fromByteCount: size, countStyle: .file) : "—")
+            let (repository, tag) = ImageReference.split(reference)
+            return ImageRow(reference: reference, repository: repository, tag: tag, digest: digest, size: size > 0 ? ByteCountFormatter.string(fromByteCount: size, countStyle: .file) : "—")
         }
     }
 }
@@ -57,7 +53,11 @@ public enum ArgumentTokenizer {
     public static func split(_ text: String) throws -> [String] {
         var tokens: [String] = [], current = "", quote: Character?, escape = false, active = false
         for c in text {
-            if escape { current.append(c); escape = false; active = true; continue }
+            if escape {
+                // As in POSIX shells, inside double quotes a backslash only escapes \ " $ and `.
+                if quote == "\"" && !"\\\"$`".contains(c) { current.append("\\") }
+                current.append(c); escape = false; active = true; continue
+            }
             if c == "\\", quote != "'" { escape = true; active = true; continue }
             if let q = quote {
                 if c == q { quote = nil } else { current.append(c) }
@@ -88,13 +88,20 @@ public struct NativeOperation: Identifiable, Hashable, Sendable {
     public let title: String
     public let path: [String]
     public let example: String
+    /// Interactive: always handed to Terminal.
     public let terminal: Bool
+    /// Stops services or deletes resources: asks for confirmation first.
     public let destructive: Bool
+    /// Runs with sudo in Terminal, where macOS asks for the password; the app never sees it.
+    public let admin: Bool
     public var id: String { path.joined(separator: " ") }
-    public init(_ group: String, _ title: String, _ path: String, _ example: String = "", terminal: Bool = false, destructive: Bool = false) {
+    public init(_ group: String, _ title: String, _ path: String, _ example: String = "", terminal: Bool = false, destructive: Bool = false, admin: Bool = false) {
         self.group = group; self.title = title; self.path = path.split(separator: " ").map(String.init)
-        self.example = example; self.terminal = terminal; self.destructive = destructive
+        self.example = example; self.terminal = terminal; self.destructive = destructive; self.admin = admin
     }
+    /// Catalog groups in display order.
+    public static let groups: [String] = { var seen = Set<String>(); return all.map(\.group).filter { seen.insert($0).inserted } }()
+    public static func operations(in group: String) -> [NativeOperation] { all.filter { $0.group == group } }
     public static let all: [NativeOperation] = [
         .init("Containers", "Run Container", "run", "--detach --name web -p 127.0.0.1:8080:80 nginx:alpine"),
         .init("Containers", "Create Without Starting", "create", "--name web nginx:alpine"),
@@ -138,8 +145,8 @@ public struct NativeOperation: Identifiable, Hashable, Sendable {
         .init("System", "Start Engine", "system start", "--enable-kernel-install"), .init("System", "Stop Engine", "system stop", destructive: true),
         .init("System", "Engine Status", "system status"), .init("System", "Version", "system version"),
         .init("System", "Service Logs", "system logs", "--last 5m"), .init("System", "Disk Usage", "system df"),
-        .init("System", "Create DNS Domain (Admin)", "system dns create", "test", terminal: true),
-        .init("System", "Delete DNS Domain (Admin)", "system dns delete", "test", terminal: true, destructive: true),
+        .init("System", "Create DNS Domain (Admin)", "system dns create", "test", terminal: true, admin: true),
+        .init("System", "Delete DNS Domain (Admin)", "system dns delete", "test", terminal: true, destructive: true, admin: true),
         .init("System", "List DNS Domains", "system dns list"), .init("System", "Install Recommended Kernel", "system kernel set", "--recommended"),
         .init("System", "System Properties", "system property list"),
         .init("Kubernetes", "Create Cluster (Experimental)", "k8s create", "--name dev --cpus 2 --memory 4g"),

@@ -1,5 +1,9 @@
 import Foundation
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
 
 public struct Command: Sendable {
     public var executable: String
@@ -12,7 +16,24 @@ public struct Command: Sendable {
         self.directory = directory; self.environment = environment
     }
     public var display: String { ([executable] + arguments).map(Self.quote).joined(separator: " ") }
-    public static func quote(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\"'\"'") + "'" }
+    /// POSIX single quoting; words made only of safe characters stay bare so copied commands read naturally.
+    public static func quote(_ s: String) -> String {
+        if !s.isEmpty, s.first != "=", s.unicodeScalars.allSatisfy({ safe.contains($0) }) { return s }
+        return "'" + s.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+    // A leading "=" is quoted anyway because zsh expands `=name` to a command path.
+    private static let safe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@+=:,./_-")
+}
+
+/// The only shell path: a command typed into Terminal.app, with every argument and the working directory quoted separately.
+public enum TerminalScript {
+    public static func shellLine(_ command: Command, admin: Bool = false) -> String {
+        (command.directory.map { "cd " + Command.quote($0) + " && " } ?? "") + (admin ? "sudo " : "") + command.display
+    }
+    public static func appleScript(_ command: Command, admin: Bool = false) -> String {
+        let line = shellLine(command, admin: admin).replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        return "tell application \"Terminal\"\nactivate\ndo script \"\(line)\"\nend tell"
+    }
 }
 
 public struct CommandResult: Sendable {
@@ -28,9 +49,14 @@ public enum HarborError: LocalizedError {
 }
 
 public enum Runner {
+    /// Per-stream output cap; anything larger belongs in Terminal.
+    public static let outputLimit: UInt64 = 2 * 1024 * 1024
+
     // Separate temporary files drain both streams without pipe-buffer deadlocks.
-    // Commands run off the main thread; timeout/cancellation terminates this process only.
-    public static func run(_ command: Command, timeout: TimeInterval = 30) async throws -> CommandResult {
+    // Commands run off the main thread; timeout/cancellation terminates this process only, and so does
+    // output beyond `outputLimit`, so a chatty command cannot fill the disk before it exits.
+    // `onOutput` receives new complete lines about every 250 ms while the command runs, then the unterminated rest.
+    public static func run(_ command: Command, timeout: TimeInterval = 30, onOutput: (@Sendable (String) -> Void)? = nil) async throws -> CommandResult {
         let job = Task.detached(priority: .userInitiated) { () throws -> CommandResult in
             let fm = FileManager.default
             guard fm.isExecutableFile(atPath: command.executable) else {
@@ -39,37 +65,40 @@ public enum Runner {
             let dir = fm.temporaryDirectory.appendingPathComponent("harbor-" + UUID().uuidString)
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
             defer { try? fm.removeItem(at: dir) }
-            let out = dir.appendingPathComponent("stdout"), err = dir.appendingPathComponent("stderr")
-            fm.createFile(atPath: out.path, contents: nil); fm.createFile(atPath: err.path, contents: nil)
-            let oh = try FileHandle(forWritingTo: out), eh = try FileHandle(forWritingTo: err)
-            defer { try? oh.close(); try? eh.close() }
+            let out = try Capture(dir.appendingPathComponent("stdout")), err = try Capture(dir.appendingPathComponent("stderr"))
+            defer { out.close(); err.close() }
             let process = Process()
             process.executableURL = URL(fileURLWithPath: command.executable)
             process.arguments = command.arguments; process.environment = command.environment
             process.standardInput = FileHandle.nullDevice
-            process.standardOutput = oh; process.standardError = eh
+            process.standardOutput = out.writer; process.standardError = err.writer
             if let directory = command.directory { process.currentDirectoryURL = URL(fileURLWithPath: directory) }
             try process.run()
+            func stop(_ reason: String) throws -> Never {
+                process.terminate()
+                for _ in 0..<10 where process.isRunning { usleep(50_000) }
+                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+                process.waitUntilExit()
+                throw HarborError.message(reason)
+            }
+            func publish(final: Bool) throws {
+                guard let onOutput else { return }
+                let text = try out.newText(final: final) + err.newText(final: final)
+                if !text.isEmpty { onOutput(text) }
+            }
             let deadline = Date().addingTimeInterval(timeout)
+            var nextPublish = Date()
             while process.isRunning {
-                if Task.isCancelled || Date() > deadline {
-                    process.terminate()
-                    for _ in 0..<10 where process.isRunning { usleep(50_000) }
-                    if process.isRunning { kill(process.processIdentifier, SIGKILL) }
-                    process.waitUntilExit()
-                    throw HarborError.message(Task.isCancelled ? "Operation canceled. The backend task may still be running; refresh to check its state." : "Command timed out (\(Int(timeout))s). The backend task may still be running; refresh to check its state.")
-                }
+                if Task.isCancelled { try stop("Operation canceled. The backend task may still be running; refresh to check its state.") }
+                if Date() > deadline { try stop("Command timed out (\(Int(timeout))s). The backend task may still be running; refresh to check its state.") }
+                if try max(out.size(), err.size()) > outputLimit { try stop(tooLarge) }
+                if Date() >= nextPublish { try publish(final: false); nextPublish = Date().addingTimeInterval(0.25) }
                 try? await Task.sleep(for: .milliseconds(50))
             }
             process.waitUntilExit()
-            func read(_ url: URL) throws -> String {
-                let file = try FileHandle(forReadingFrom: url); defer { try? file.close() }
-                let size = try file.seekToEnd(), limit: UInt64 = 2 * 1024 * 1024
-                if size > limit { throw HarborError.message("Command output exceeds 2 MB; view it in Terminal.") }
-                try file.seek(toOffset: 0)
-                return String(decoding: try file.readToEnd() ?? Data(), as: UTF8.self)
-            }
-            return try CommandResult(output: read(out), errorOutput: read(err), status: process.terminationStatus)
+            if try max(out.size(), err.size()) > outputLimit { throw HarborError.message(tooLarge) }
+            try publish(final: true)
+            return try CommandResult(output: out.text(), errorOutput: err.text(), status: process.terminationStatus)
         }
         return try await withTaskCancellationHandler { try await job.value } onCancel: { job.cancel() }
     }
@@ -78,26 +107,58 @@ public enum Runner {
         guard result.status == 0 else { throw HarborError.message(result.combined.isEmpty ? "Command failed with exit code \(result.status)" : result.combined) }
         return result.output
     }
+    private static let tooLarge = "Command output exceeds 2 MB; view it in Terminal."
+}
+
+/// One captured output stream: the child process writes the file, the runner reads it back.
+private final class Capture {
+    let writer: FileHandle
+    private let reader: FileHandle
+    private var published: UInt64 = 0
+    init(_ url: URL) throws {
+        _ = FileManager.default.createFile(atPath: url.path, contents: nil)
+        writer = try FileHandle(forWritingTo: url); reader = try FileHandle(forReadingFrom: url)
+    }
+    func size() throws -> UInt64 { try reader.seekToEnd() }
+    /// Text written since the previous call, cut after the last line break unless `final`.
+    /// Line breaks are ASCII, so the cut never splits a UTF-8 sequence.
+    func newText(final: Bool) throws -> String {
+        try reader.seek(toOffset: published)
+        let data = try reader.readToEnd() ?? Data()
+        let end = final ? data.endIndex : (data.lastIndex(where: { $0 == 0x0A || $0 == 0x0D }).map { $0 + 1 } ?? data.startIndex)
+        published += UInt64(end - data.startIndex)
+        return String(decoding: data[data.startIndex..<end], as: UTF8.self)
+    }
+    func text() throws -> String {
+        try reader.seek(toOffset: 0)
+        return String(decoding: try reader.readToEnd() ?? Data(), as: UTF8.self)
+    }
+    func close() { try? writer.close(); try? reader.close() }
 }
 
 public struct RuntimeConfig: Codable, Equatable, Sendable {
+    /// Where Homebrew and the official installers put the tools, in lookup order.
+    public static let toolDirectories = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]
+    /// PATH for child processes; an app launched from Finder inherits only a minimal one.
+    static let searchPath = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    /// The socket Socktainer listens on when started without options; the built-in launcher only supports this one.
+    public static let defaultSocket = NSHomeDirectory() + "/.socktainer/container.sock"
     public var docker: String
     public var container: String
     public var socktainer: String
     public var socket: String
     public init(docker: String = Self.find("docker"), container: String = Self.find("container"),
-                socktainer: String = Self.find("socktainer"), socket: String = NSHomeDirectory() + "/.socktainer/container.sock") {
+                socktainer: String = Self.find("socktainer"), socket: String = Self.defaultSocket) {
         self.docker = docker; self.container = container; self.socktainer = socktainer; self.socket = socket
     }
     public static func find(_ name: String) -> String {
-        let paths = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]
-        return paths.map { $0 + "/" + name }.first { FileManager.default.isExecutableFile(atPath: $0) } ?? "/opt/homebrew/bin/" + name
+        toolDirectories.map { $0 + "/" + name }.first { FileManager.default.isExecutableFile(atPath: $0) } ?? toolDirectories[0] + "/" + name
     }
     public var environment: [String: String] {
         var env = ProcessInfo.processInfo.environment
         // An inherited context/TLS setting must never redirect a Harbor command to OrbStack.
         for key in ["DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH", "DOCKER_API_VERSION", "COMPOSE_FILE", "COMPOSE_PROJECT_NAME", "COMPOSE_PROFILES"] { env.removeValue(forKey: key) }
-        env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        env["PATH"] = Self.searchPath
         env["DOCKER_HOST"] = "unix://" + socket
         env["COMPOSE_ANSI"] = "never"
         return env
@@ -107,7 +168,7 @@ public struct RuntimeConfig: Codable, Equatable, Sendable {
     }
     public func nativeCommand(_ args: [String]) -> Command {
         var nativeEnvironment = ProcessInfo.processInfo.environment
-        nativeEnvironment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        nativeEnvironment["PATH"] = Self.searchPath
         return Command(container, args, environment: nativeEnvironment)
     }
     public func composeCommand(_ project: ComposeProject, _ args: [String]) -> Command {
