@@ -40,9 +40,15 @@ enum GlassStyle: String, CaseIterable, Identifiable {
 /// The coordinate space of the whole window, shared by the wallpaper and the panes that mirror it.
 enum Backdrop { static let space = "harbor.backdrop" }
 
+/// A plain key rather than the `@Entry` macro, whose plugin may ship only with full Xcode, not the Command Line Tools.
+private struct InsidePaneKey: EnvironmentKey { static let defaultValue = false }
+
 extension EnvironmentValues {
     /// Set inside a glass pane, so a panel within it draws as a lighter well instead of a second sheet of glass.
-    @Entry var insidePane = false
+    var insidePane: Bool {
+        get { self[InsidePaneKey.self] }
+        set { self[InsidePaneKey.self] = newValue }
+    }
 }
 
 /// The window's wallpaper: rows of corrugated containers under a soft glow, drawn from the window's top-left at a fixed
