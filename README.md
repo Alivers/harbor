@@ -7,10 +7,10 @@ This is the **0.4 preview** and requires **macOS 27** on Apple silicon. The app 
 ## Using Harbor
 
 - **Native macOS 27 layout.** A sidebar groups Workloads, Resources, Environments and System. Actions live in the toolbar, search sits in the toolbar's search field, and details open in an inspector.
-- **Aurora Ice, in hybrid glass.** Pages sit on a soft aurora: ice, lilac and mint by day, deep indigo by night. Violet marks selection and actions, and mint marks anything running.
-  - Lists and cards are crystal glass panels: frosted, with a bright edge and a sheen, so text stays easy to read.
+- **Aurora Ice, in hybrid glass.** The window is see-through. Your desktop shows through it, blurred, under an aurora tint: ice, lilac and mint by day, deep indigo by night. Violet marks selection and actions, and mint marks anything running.
+  - Lists and cards are crystal glass panels: lightly frosted, with a bright edge and a sheen.
   - Floating controls such as the activity capsule use the system's clear Liquid Glass.
-  - Settings › Appearance switches panels to clear glass too. With Reduce Transparency on, panels are solid.
+  - Settings › Appearance switches panels to clear glass too, and a slider sets how much of the desktop shows through. With Reduce Transparency on, the window and panels are solid.
 - **Nothing blocks.** Starting, stopping, pulling or composing runs in the background, and several jobs can run at once; only the resource a job changes is locked. The capsule at the bottom of the window shows what is running, then how it ended. A failure stays until you dismiss it or open its output. The clock button in the toolbar lists recent jobs with their full output.
 - **Output where it matters.** Logs, inspect output, reports and raw catalog commands open their output right away. Lifecycle actions don't open anything unless they fail.
 - **Containers.** Filter by running or stopped and sort by name, image, state or age. Click a published port to open it in the browser. Rows show actions on hover, and right-click gives you the rest; select several rows to start, stop, restart or delete them together. Double-click a row, or use the inspector button, for:

@@ -231,6 +231,7 @@ struct SettingsView: View {
     @AppStorage(Preference.menuBarExtra) private var showMenuBarExtra = true
     @AppStorage(Preference.notifications) private var notify = true
     @AppStorage(Preference.glassStyle) private var glassStyle = GlassStyle.crystal.rawValue
+    @AppStorage(Preference.backdropTint) private var backdropTint = Preference.defaultBackdropTint
     var body: some View {
         let edited = Binding(get: { draft ?? store.config }, set: { draft = $0 })
         Form {
@@ -239,8 +240,9 @@ struct SettingsView: View {
                     ForEach(GlassStyle.allCases) { Text($0.rawValue).tag($0.rawValue) }
                 }
                 .pickerStyle(.segmented)
+                Slider(value: $backdropTint, in: 0...0.9) { Text("Background") } minimumValueLabel: { Text("See-through") } maximumValueLabel: { Text("Aurora") }
             } header: { Text("Appearance") } footer: {
-                Text("Crystal panels are frosted with a bright edge, so text stays easy to read. Clear panels use the system's clear Liquid Glass and show more of what is behind them. Floating controls are always clear, and with Reduce Transparency on, panels are solid.")
+                Text("Crystal panels are lightly frosted with a bright edge. Clear panels use the system's clear Liquid Glass and show more of what is behind them. Background sets how much of the blurred desktop shows through the aurora. Floating controls are always clear, and with Reduce Transparency on, the window and panels are solid.")
             }
             Section {
                 Toggle("Show Harbor in the menu bar", isOn: $showMenuBarExtra)

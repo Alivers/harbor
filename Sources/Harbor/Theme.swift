@@ -32,7 +32,33 @@ enum GlassStyle: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-/// The soft aurora behind every page. Panels are glass, so they need something to show through them.
+/// The window's background: the desktop, blurred through the window, under an aurora tint.
+/// It covers the whole window, sidebar and toolbar included, so the glass everywhere has something to show.
+struct WindowBackdrop: View {
+    @AppStorage(Preference.backdropTint) private var tint = Preference.defaultBackdropTint
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    var body: some View {
+        ZStack {
+            if reduceTransparency { Color(nsColor: .windowBackgroundColor) } else { DesktopBlur() }
+            AuroraBackdrop().opacity(reduceTransparency ? 0.5 : tint)
+        }
+        .ignoresSafeArea()
+    }
+}
+
+/// What lies behind the window, blurred by the window server.
+private struct DesktopBlur: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.blendingMode = .behindWindow
+        view.material = .underWindowBackground
+        view.state = .active
+        return view
+    }
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
+}
+
+/// The aurora itself. On its own it is opaque; `WindowBackdrop` lays it over the desktop as a tint.
 struct AuroraBackdrop: View {
     @Environment(\.colorScheme) private var scheme
     var body: some View {
@@ -41,11 +67,10 @@ struct AuroraBackdrop: View {
             [0, 0.5], [0.62, 0.42], [1, 0.5],
             [0, 1], [0.45, 1], [1, 1]
         ], colors: (scheme == .dark ? Self.dark : Self.light).map(Color.init(hex:)))
-        .ignoresSafeArea()
     }
-    // Ice, lilac and mint by day; indigo, violet and deep teal by night.
-    private static let light: [UInt32] = [0xE9EEFF, 0xD9D1FF, 0xCFE6FF, 0xF2F0FF, 0xE4E9FF, 0xC9F3E4, 0xFFE3EE, 0xEAF0FF, 0xDDD6FF]
-    private static let dark: [UInt32] = [0x0E1030, 0x241C5C, 0x0E2340, 0x121433, 0x171A3D, 0x0D3B39, 0x2A1840, 0x101333, 0x1F1A55]
+    // Ice, lilac and mint by day; indigo, violet and deep teal by night. Saturated enough to read as color once it is a tint.
+    private static let light: [UInt32] = [0xDCE4FF, 0xC2B4FF, 0xB3D8FF, 0xEAE6FF, 0xD3DBFF, 0xA9EDD6, 0xFFD0E2, 0xDDE6FF, 0xCBC0FF]
+    private static let dark: [UInt32] = [0x0E1030, 0x2E2378, 0x0E2A52, 0x121433, 0x191C46, 0x0D4A45, 0x35195A, 0x101333, 0x271F6E]
 }
 
 /// A content panel in the chosen `GlassStyle`; solid when Reduce Transparency is on.
@@ -84,8 +109,9 @@ private struct CrystalFill: View {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         let tint = dark ? Color(hex: 0x1A1B3A) : .white
         ZStack {
-            shape.fill(.thinMaterial)
-            shape.fill(LinearGradient(colors: [tint.opacity(dark ? 0.62 : 0.55), tint.opacity(dark ? 0.38 : 0.22)], startPoint: .top, endPoint: .bottom))
+            // Light frosting: what is behind stays recognizable, the edge light and sheen make it glass.
+            shape.fill(.ultraThinMaterial)
+            shape.fill(LinearGradient(colors: [tint.opacity(dark ? 0.40 : 0.32), tint.opacity(dark ? 0.18 : 0.08)], startPoint: .top, endPoint: .bottom))
             shape.fill(RadialGradient(colors: [.white.opacity(dark ? 0.14 : 0.36), .white.opacity(0)], center: UnitPoint(x: 0.1, y: -0.1), startRadius: 0, endRadius: 460))
         }
         // The shadow belongs to the pane only; on the content it would shadow every line of text.

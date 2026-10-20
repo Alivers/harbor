@@ -15,6 +15,9 @@ typealias ViewState<Value> = SwiftUI.State<Value>
                 .environment(store)
                 .frame(minWidth: 880, minHeight: 560)
                 .tint(.harbor)
+                // The window shows the desktop through an aurora tint; the toolbar keeps no background of its own.
+                .containerBackground(for: .window) { WindowBackdrop() }
+                .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         }
         .defaultSize(width: 1180, height: 760)
         .commands { HarborCommands(store: store) }

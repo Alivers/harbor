@@ -79,7 +79,7 @@ struct PortLinks: View {
     var body: some View {
         ForEach(mappings.prefix(limit), id: \.self) { port in
             if let url = port.url {
-                Link(destination: url) { Label(port.label, systemImage: "arrow.up.forward.square").labelStyle(.titleAndIcon) }
+                Link(destination: url) { Label(port.label, systemImage: "arrow.up.forward.square").labelStyle(.titleAndIcon).foregroundStyle(Color.harborText) }
                     .font(.caption.monospacedDigit())
                     .help("Open \(url.absoluteString)")
             } else {
