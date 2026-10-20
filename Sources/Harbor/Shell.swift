@@ -403,17 +403,12 @@ extension InfoRow where Value == Text {
     init(_ label: String, text: String) { self.init(label) { Text(text) } }
 }
 
-/// Lets a scrolling column's pane shadows show at its sides while it still clips at the top and bottom.
-struct SideBleed: Shape {
-    var amount: CGFloat = 48
-    func path(in rect: CGRect) -> Path { Path(rect.insetBy(dx: -amount, dy: 0)) }
-}
-
 extension View {
-    /// A vertically scrolling page of panes whose shadows are not cut off at the sides.
+    /// A vertically scrolling page of panes. The scroll view reaches 10 pt past the column on each side, into the
+    /// gaps, so the panes' shadows are not cut off at their edges. It clips only to its own rectangle: a SwiftUI
+    /// clip shape here would stop the panes' blur.
     func paneScroll() -> some View {
-        ScrollView { self.padding(.bottom, 64) }
-            .scrollClipDisabled()
-            .clipShape(SideBleed())
+        ScrollView { self.padding(.horizontal, 10).padding(.bottom, 64) }
+            .padding(.horizontal, -10)
     }
 }

@@ -62,13 +62,14 @@ struct WindowBackdrop: View {
 }
 
 /// What lies behind the window (the desktop and other windows), blurred by the window server.
+/// It must not sit under a SwiftUI clip or mask, or an opacity applied to a group: the window server then draws
+/// nothing and the pane turns fully transparent. It rounds itself with `maskImage` instead.
 struct DesktopBlur: NSViewRepresentable {
     var cornerRadius: CGFloat = 0
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
         view.blendingMode = .behindWindow
-        // The most see-through of the system's materials: it lets the desktop's colors come through.
-        view.material = .sidebar
+        view.material = .underWindowBackground
         view.state = .active
         return view
     }
@@ -93,19 +94,6 @@ struct DesktopBlur: NSViewRepresentable {
         image.capInsets = NSEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
         image.resizingMode = .stretch
         return image
-    }
-}
-
-/// A crystal pane's back: whatever is behind the window, blurred by the window server, under the design's glass.
-private struct CrystalBackdrop: View {
-    var radius: CGFloat
-    @Environment(\.colorScheme) private var scheme
-    var body: some View {
-        ZStack {
-            DesktopBlur(cornerRadius: radius)
-            CrystalSurface(radius: radius, dark: scheme == .dark)
-        }
-        .allowsHitTesting(false)
     }
 }
 
@@ -266,10 +254,12 @@ struct GlassPanel: ViewModifier {
                     .glassEffect(.clear, in: shape)
                     .background { PaneShadow(radius: radius, opacity: dark ? 0.4 : 0.22) }
             } else {
+                // The blur stays outside the clip (see `DesktopBlur`); the glass and the content are clipped.
                 content
                     .environment(\.insidePane, true)
-                    .background { CrystalBackdrop(radius: radius) }
+                    .background { CrystalSurface(radius: radius, dark: dark).allowsHitTesting(false) }
                     .clipShape(shape)
+                    .background { DesktopBlur(cornerRadius: radius).allowsHitTesting(false) }
                     .background { PaneShadow(radius: radius, opacity: dark ? 0.4 : 0.26) }
             }
         }
