@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 // Aurora Ice with hybrid glass, as in the design's E + 4 window (light) and its deep-indigo night version.
-// The window is lightly frosted glass over the desktop (the system's ultra-thin material); panes of crystal glass float
+// The window is lightly frosted glass over the desktop (a behind-window blur); panes of glass float
 // on it, and small floating controls use the system's clear Liquid Glass. The harbor in the design's mockup is its
 // desktop wallpaper, not part of the app.
 // Every value below comes from the design unless a comment says otherwise.
@@ -49,6 +49,28 @@ extension EnvironmentValues {
         get { self[InsidePaneKey.self] }
         set { self[InsidePaneKey.self] = newValue }
     }
+}
+
+/// The window's background: the desktop and the windows below, blurred by the window server, so they show as color
+/// and never as legible detail. With Reduce Transparency the window is solid.
+struct WindowBackdrop: View {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    var body: some View {
+        if reduceTransparency { Color(nsColor: .windowBackgroundColor) } else { DesktopBlur() }
+    }
+}
+
+/// What lies behind the window, blurred by the window server. SwiftUI's materials only blur what is inside the window:
+/// as a window background they left it opaque gray.
+private struct DesktopBlur: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.blendingMode = .behindWindow
+        view.material = .underWindowBackground
+        view.state = .active
+        return view
+    }
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
 }
 
 /// The design's crystal recipe over the frosted window: a lilac-white gradient, an inner glow that is strongest at the
