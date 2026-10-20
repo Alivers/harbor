@@ -91,12 +91,15 @@ struct ImagesView: View {
                 if let image = store.images.first(where: { ids.contains($0.id) }) { store.present(.run(RunOptions(image: image.reference))) }
             }
             .animation(.smooth, value: rows)
-            .glassList()
+            .scrollContentBackground(.hidden)
+            .huggingGlassPanel(height: 16 + CGFloat(rows.count) * ImageListRow.height)
         }
     }
 }
 
 private struct ImageListRow: View {
+    /// Row height in the list, including the list's own row insets; the panel sizes itself from it.
+    static let height: CGFloat = 54
     @Environment(Store.self) private var store
     @Environment(\.backgroundProminence) private var prominence
     let image: ImageRow

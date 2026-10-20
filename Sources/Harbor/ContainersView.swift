@@ -110,9 +110,7 @@ struct ContainersView: View {
                     .animation(.smooth, value: rows)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .glassPanel()
-            .padding(.horizontal, 16).padding(.vertical, 12)
+            .huggingGlassPanel(height: rows.isEmpty ? 300 : 58 + CGFloat(rows.count) * ContainerListRow.height)
         }
     }
 
@@ -170,6 +168,8 @@ struct ContainersView: View {
 }
 
 private struct ContainerListRow: View {
+    /// Row height in the list, including the list's own row insets; the panel sizes itself from it.
+    static let height: CGFloat = 54
     @Environment(Store.self) private var store
     let container: ContainerRow
     @ViewState<Bool> private var hovering = false
