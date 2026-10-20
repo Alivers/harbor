@@ -32,10 +32,11 @@ extension Color {
 
 /// How the content panes are drawn. Floating controls always use the system's clear Liquid Glass.
 enum GlassStyle: String, CaseIterable, Identifiable {
-    /// Frosted crystal: the backdrop blurred and saturated under a lilac-white tint, with edge light and a sheen.
-    case crystal = "Crystal"
-    /// The system's clear Liquid Glass: barely blurred, so what is behind stays sharp.
+    /// The design's clear glass (B), the default: the system's clear Liquid Glass with a faint tint, a slanted sheen
+    /// and bright edges.
     case clear = "Clear"
+    /// The design's crystal (C): a stronger lilac-white tint with an inner glow, a sheen from the top-left and edge light.
+    case crystal = "Crystal"
     var id: String { rawValue }
 }
 
@@ -84,23 +85,16 @@ private struct CrystalSurface: View {
         var glow = context
         glow.opacity = dark ? 0.35 : 0.7
         glow.drawLayer { layer in
-            band(&layer, CGRect(x: 0, y: 0, width: w, height: 95), from: CGPoint(x: 0, y: 0), to: CGPoint(x: 0, y: 95), Self.top)
-            band(&layer, CGRect(x: 0, y: h - 54, width: w, height: 54), from: CGPoint(x: 0, y: h), to: CGPoint(x: 0, y: h - 54), Self.bottom)
-            band(&layer, CGRect(x: 0, y: 0, width: 70, height: h), from: CGPoint(x: 0, y: 0), to: CGPoint(x: 70, y: 0), Self.side)
-            band(&layer, CGRect(x: w - 70, y: 0, width: 70, height: h), from: CGPoint(x: w, y: 0), to: CGPoint(x: w - 70, y: 0), Self.side)
+            glowBand(&layer, CGRect(x: 0, y: 0, width: w, height: 95), from: CGPoint(x: 0, y: 0), to: CGPoint(x: 0, y: 95), Self.top)
+            glowBand(&layer, CGRect(x: 0, y: h - 54, width: w, height: 54), from: CGPoint(x: 0, y: h), to: CGPoint(x: 0, y: h - 54), Self.bottom)
+            glowBand(&layer, CGRect(x: 0, y: 0, width: 70, height: h), from: CGPoint(x: 0, y: 0), to: CGPoint(x: 70, y: 0), Self.side)
+            glowBand(&layer, CGRect(x: w - 70, y: 0, width: 70, height: h), from: CGPoint(x: w, y: 0), to: CGPoint(x: w - 70, y: 0), Self.side)
         }
     }
     // How much of each band the blurred glow covers, at even steps from the edge inwards.
     private static let top: [Double] = [1, 0.97, 0.85, 0.56, 0.23, 0.05, 0]
     private static let side: [Double] = [0.94, 0.78, 0.5, 0.22, 0.06, 0]
     private static let bottom: [Double] = [0.63, 0.39, 0.19, 0.07, 0.02, 0]
-    private func band(_ context: inout GraphicsContext, _ rect: CGRect, from: CGPoint, to: CGPoint, _ coverage: [Double]) {
-        let last = Double(coverage.count - 1)
-        let stops: [Gradient.Stop] = coverage.enumerated().map { step in
-            Gradient.Stop(color: Color.white.opacity(step.element), location: Double(step.offset) / last)
-        }
-        context.fill(Path(rect), with: .linearGradient(Gradient(stops: stops), startPoint: from, endPoint: to))
-    }
     /// radial-gradient(130% 80% at 10% -10%, white .38, transparent 55%).
     private func drawSheen(in context: inout GraphicsContext, size: CGSize) {
         var sheen = context
@@ -118,29 +112,99 @@ private struct CrystalSurface: View {
         within.clip(to: inner)
         let ring: Path = RoundedRectangle(cornerRadius: max(radius - 1.5, 0), style: .continuous).path(in: rect.insetBy(dx: 1.5, dy: 1.5))
         within.stroke(ring, with: .color(.white.opacity(dark ? 0.06 : 0.18)), lineWidth: 1)
-        within.fill(crescent(inner, dy: 1), with: .color(.white.opacity(dark ? 0.42 : 0.85)), style: FillStyle(eoFill: true))
-        within.fill(crescent(inner, dy: -1), with: .color(.black.opacity(dark ? 0.35 : 0.10)), style: FillStyle(eoFill: true))
-    }
-    /// The sliver between a shape and itself moved by `dy`: a line along the top (dy > 0) or the bottom (dy < 0).
-    private func crescent(_ shape: Path, dy: CGFloat) -> Path {
-        var path = shape
-        path.addPath(shape.offsetBy(dx: 0, dy: dy))
-        return path
+        within.fill(crescent(inner, dx: 0, dy: 1), with: .color(.white.opacity(dark ? 0.42 : 0.85)), style: FillStyle(eoFill: true))
+        within.fill(crescent(inner, dx: 0, dy: -1), with: .color(.black.opacity(dark ? 0.35 : 0.10)), style: FillStyle(eoFill: true))
     }
 }
 
-/// The pane's drop shadow (0 20px 48px black .26) as a Core Animation shadow with a fixed path, cut out under the pane
-/// so it never darkens the glass. A blurred SwiftUI shadow would be redrawn on every frame of a resize or slide.
+/// The design's clear glass (B) over the system's clear Liquid Glass: a 12 % lilac-white tint, a slanted sheen, light
+/// along the top and left edges and less along the bottom and right, a faint inner glow and a white hairline border.
+private struct ClearSurface: View {
+    var radius: CGFloat
+    var dark: Bool
+    var body: some View {
+        Canvas { context, size in
+            let rect = CGRect(origin: .zero, size: size)
+            let outline: Path = RoundedRectangle(cornerRadius: radius, style: .continuous).path(in: rect)
+            context.clip(to: outline)
+            let tint: Color = Color(hex: dark ? 0x1A1B3A : 0xFAF8FF)
+            context.fill(Path(rect), with: .color(tint.opacity(dark ? 0.18 : 0.12)))
+            drawSheen(in: &context, size: size)
+            drawGlow(in: &context, size: size)
+            drawEdges(in: &context, rect: rect)
+        }
+    }
+    /// linear-gradient(122deg, white .42 0%, white .05 30%, transparent 52%, white .12 100%).
+    private func drawSheen(in context: inout GraphicsContext, size: CGSize) {
+        let dx: CGFloat = 0.848, dy: CGFloat = 0.530
+        let half: CGFloat = (size.width * dx + size.height * dy) / 2
+        let start = CGPoint(x: size.width / 2 - half * dx, y: size.height / 2 - half * dy)
+        let end = CGPoint(x: size.width / 2 + half * dx, y: size.height / 2 + half * dy)
+        let stops: [Gradient.Stop] = [
+            .init(color: .white.opacity(dark ? 0.18 : 0.42), location: 0),
+            .init(color: .white.opacity(0.05), location: 0.3),
+            .init(color: .white.opacity(0), location: 0.52),
+            .init(color: .white.opacity(dark ? 0.05 : 0.12), location: 1)]
+        context.fill(Path(CGRect(origin: .zero, size: size)), with: .linearGradient(Gradient(stops: stops), startPoint: start, endPoint: end))
+    }
+    /// inset 0 0 24px white .14: a faint glow along every edge (σ 12), fading out over about 30 pt.
+    private func drawGlow(in context: inout GraphicsContext, size: CGSize) {
+        let w: CGFloat = size.width, h: CGFloat = size.height
+        let coverage: [Double] = [0.5, 0.31, 0.16, 0.07, 0.02, 0]
+        var glow = context
+        glow.opacity = dark ? 0.05 : 0.14
+        glow.drawLayer { layer in
+            glowBand(&layer, CGRect(x: 0, y: 0, width: w, height: 30), from: CGPoint(x: 0, y: 0), to: CGPoint(x: 0, y: 30), coverage)
+            glowBand(&layer, CGRect(x: 0, y: h - 30, width: w, height: 30), from: CGPoint(x: 0, y: h), to: CGPoint(x: 0, y: h - 30), coverage)
+            glowBand(&layer, CGRect(x: 0, y: 0, width: 30, height: h), from: CGPoint(x: 0, y: 0), to: CGPoint(x: 30, y: 0), coverage)
+            glowBand(&layer, CGRect(x: w - 30, y: 0, width: 30, height: h), from: CGPoint(x: w, y: 0), to: CGPoint(x: w - 30, y: 0), coverage)
+        }
+    }
+    /// border 1px white .6; inset 1px 1px 0 white .85; inset -1px -1px 0 white .21.
+    private func drawEdges(in context: inout GraphicsContext, rect: CGRect) {
+        let border: Path = RoundedRectangle(cornerRadius: radius - 0.5, style: .continuous).path(in: rect.insetBy(dx: 0.5, dy: 0.5))
+        context.stroke(border, with: .color(.white.opacity(dark ? 0.22 : 0.6)), lineWidth: 1)
+        let inner: Path = RoundedRectangle(cornerRadius: max(radius - 1, 0), style: .continuous).path(in: rect.insetBy(dx: 1, dy: 1))
+        let bright: Double = dark ? 0.42 : 0.85
+        var within = context
+        within.clip(to: inner)
+        within.fill(crescent(inner, dx: 1, dy: 1), with: .color(.white.opacity(bright)), style: FillStyle(eoFill: true))
+        within.fill(crescent(inner, dx: -1, dy: -1), with: .color(.white.opacity(bright * 0.25)), style: FillStyle(eoFill: true))
+    }
+}
+
+/// One edge of an inset glow: white at the given coverages, at even steps from `from` to `to`.
+private func glowBand(_ context: inout GraphicsContext, _ rect: CGRect, from: CGPoint, to: CGPoint, _ coverage: [Double]) {
+    let last = Double(coverage.count - 1)
+    let stops: [Gradient.Stop] = coverage.enumerated().map { step in
+        Gradient.Stop(color: Color.white.opacity(step.element), location: Double(step.offset) / last)
+    }
+    context.fill(Path(rect), with: .linearGradient(Gradient(stops: stops), startPoint: from, endPoint: to))
+}
+
+/// The sliver between a shape and itself moved by (dx, dy): an inset edge line on the sides the move uncovers.
+private func crescent(_ shape: Path, dx: CGFloat, dy: CGFloat) -> Path {
+    var path = shape
+    path.addPath(shape.offsetBy(dx: dx, dy: dy))
+    return path
+}
+
+/// The pane's drop shadow as a Core Animation shadow with a fixed path, cut out under the pane so it never darkens the
+/// glass. A blurred SwiftUI shadow would be redrawn on every frame of a resize or slide. `blur` is half the CSS blur.
 private struct PaneShadow: NSViewRepresentable {
     var radius: CGFloat
+    var blur: CGFloat
+    var offset: CGFloat
     var opacity: Float
     func makeNSView(context: Context) -> ShadowView { ShadowView() }
     func updateNSView(_ view: ShadowView, context: Context) {
-        view.radius = radius; view.opacity = opacity
+        view.radius = radius; view.blur = blur; view.offset = offset; view.opacity = opacity
         view.needsLayout = true
     }
     final class ShadowView: NSView {
         var radius: CGFloat = 18
+        var blur: CGFloat = 24
+        var offset: CGFloat = 20
         var opacity: Float = 0.26
         private let caster = CALayer()
         private let cutout = CAShapeLayer()
@@ -151,8 +215,6 @@ private struct PaneShadow: NSViewRepresentable {
             layer = root
             wantsLayer = true
             caster.shadowColor = NSColor.black.cgColor
-            caster.shadowRadius = 24
-            caster.shadowOffset = CGSize(width: 0, height: -20)
             root.addSublayer(caster)
             cutout.fillRule = .evenOdd
             root.mask = cutout
@@ -167,6 +229,8 @@ private struct PaneShadow: NSViewRepresentable {
             caster.frame = bounds
             caster.shadowPath = shape
             caster.shadowOpacity = opacity
+            caster.shadowRadius = blur
+            caster.shadowOffset = CGSize(width: 0, height: -offset)
             let mask = CGMutablePath()
             mask.addRect(bounds.insetBy(dx: -120, dy: -120))
             mask.addPath(shape)
@@ -181,7 +245,7 @@ private struct PaneShadow: NSViewRepresentable {
 /// Transparency it is solid.
 struct GlassPanel: ViewModifier {
     var radius: CGFloat
-    @AppStorage(Preference.glassStyle) private var style = GlassStyle.crystal.rawValue
+    @AppStorage(Preference.glassStyle) private var style = GlassStyle.clear.rawValue
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.insidePane) private var nested
@@ -200,18 +264,21 @@ struct GlassPanel: ViewModifier {
                     .environment(\.insidePane, true)
                     .background(Color(nsColor: .windowBackgroundColor), in: shape)
                     .overlay { shape.strokeBorder(Color.primary.opacity(0.12)).allowsHitTesting(false) }
-            } else if style == GlassStyle.clear.rawValue {
-                content
-                    .environment(\.insidePane, true)
-                    .glassEffect(.clear, in: shape)
-                    .background { PaneShadow(radius: radius, opacity: dark ? 0.4 : 0.22) }
-            } else {
+            } else if style == GlassStyle.crystal.rawValue {
                 // The window's frosted material is the blur; the pane adds the crystal on top of it.
                 content
                     .environment(\.insidePane, true)
                     .background { CrystalSurface(radius: radius, dark: dark).allowsHitTesting(false) }
                     .clipShape(shape)
-                    .background { PaneShadow(radius: radius, opacity: dark ? 0.4 : 0.26) }
+                    .background { PaneShadow(radius: radius, blur: 24, offset: 20, opacity: dark ? 0.4 : 0.26) }
+            } else {
+                // Real clear Liquid Glass bends and lightly blurs what is behind; the design's clear recipe sits on it.
+                content
+                    .environment(\.insidePane, true)
+                    .background { ClearSurface(radius: radius, dark: dark).allowsHitTesting(false) }
+                    .clipShape(shape)
+                    .glassEffect(.clear, in: shape)
+                    .background { PaneShadow(radius: radius, blur: 17, offset: 14, opacity: dark ? 0.4 : 0.22) }
             }
         }
     }

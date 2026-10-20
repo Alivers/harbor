@@ -227,7 +227,7 @@ struct SettingsView: View {
     @ViewState<RuntimeConfig?> private var draft: RuntimeConfig?
     @AppStorage(Preference.menuBarExtra) private var showMenuBarExtra = true
     @AppStorage(Preference.notifications) private var notify = true
-    @AppStorage(Preference.glassStyle) private var glassStyle = GlassStyle.crystal.rawValue
+    @AppStorage(Preference.glassStyle) private var glassStyle = GlassStyle.clear.rawValue
     var body: some View {
         let edited = Binding(get: { draft ?? store.config }, set: { draft = $0 })
         Form {
@@ -237,7 +237,7 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
             } header: { Text("Appearance") } footer: {
-                Text("The window is clear, so your desktop shows between the panes. Crystal panes frost what is behind them under a bright edge and a sheen; clear panes use the system's clear Liquid Glass. Floating controls are always clear Liquid Glass, and with Reduce Transparency on, the window and panes are solid.")
+                Text("The window lightly frosts your desktop. Clear panes are the system's clear Liquid Glass with bright edges and a slanted sheen; crystal panes are whiter, with an inner glow. Floating controls are always clear Liquid Glass, and with Reduce Transparency on, the window and panes are solid.")
             }
             Section {
                 Toggle("Show Harbor in the menu bar", isOn: $showMenuBarExtra)
