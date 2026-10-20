@@ -73,6 +73,8 @@ enum Preference {
     private(set) var containers: [ContainerRow] = []
     private(set) var images: [ImageRow] = []
     private(set) var imageError: String?
+    /// Why the last container list could not be read while the engine answered; the previous list stays shown.
+    private(set) var containerError: String?
     /// Raw CLI listings of the resource pages, keyed by their arguments. A page shows its last read at once
     /// and refreshes in place, so switching pages does not make the content jump.
     private(set) var listings: [String: String] = [:]
@@ -89,6 +91,7 @@ enum Preference {
     var sheet: SheetRoute?
     /// A page another part of the app wants the window to show, such as Compose after a dropped file.
     var requestedPage: Page?
+    @ObservationIgnored private var presentation = 0
     @ObservationIgnored private var refreshing = false
     @ObservationIgnored private var pollTask: Task<Void, Never>?
     @ObservationIgnored private var lastBackgroundRead = Date.distantPast
@@ -148,24 +151,35 @@ enum Preference {
         if !FileManager.default.isExecutableFile(atPath: config.container), let found = RuntimeConfig.locate("container") { adoptCLI(found) }
         let snapshot = config
         guard FileManager.default.isExecutableFile(atPath: snapshot.container) else { return apply(.missingCLI, snapshot) }
-        do {
-            let rows = try NativeParser.containers(try await Runner.checked(snapshot.nativeCommand(["list", "--all", "--format", "json"]), timeout: 10))
-            var imageRows: [ImageRow] = [], imageFailure: String?
-            do { imageRows = try NativeParser.images(try await Runner.checked(snapshot.nativeCommand(["image", "list", "--format", "json"]), timeout: 10)) }
-            catch { imageFailure = error.localizedDescription }
-            apply(.running, snapshot, containers: rows, images: imageRows, imageError: imageFailure)
-        } catch {
-            apply(.stopped(error.localizedDescription), snapshot)
+        let list = snapshot.nativeCommand(["list", "--all", "--format", "json"])
+        let output: String
+        do { output = try await Runner.checked(list, timeout: 10) }
+        catch {
+            // One failed read is often a hiccup (a busy engine, a slow answer), not a stopped engine: ask once more
+            // before the pages switch to setup and the lists are cleared.
+            guard engine.isRunning, !Task.isCancelled else { return apply(.stopped(error.localizedDescription), snapshot) }
+            try? await Task.sleep(for: .seconds(1))
+            do { output = try await Runner.checked(list, timeout: 10) }
+            catch { return apply(.stopped(error.localizedDescription), snapshot) }
         }
+        // The engine answered, so it runs. A list or image read that fails keeps what was shown before.
+        var rows = containers, listFailure: String?
+        do { rows = try NativeParser.containers(output) } catch { listFailure = error.localizedDescription }
+        var imageRows = images, imageFailure: String?
+        do { imageRows = try NativeParser.images(try await Runner.checked(snapshot.nativeCommand(["image", "list", "--format", "json"]), timeout: 10)) }
+        catch { imageFailure = error.localizedDescription }
+        apply(.running, snapshot, containers: rows, containerError: listFailure, images: imageRows, imageError: imageFailure)
     }
     /// Publishes a read unless the settings changed meanwhile. Unchanged values are not reassigned,
     /// so the 6-second poll does not redraw views that have nothing new to show.
-    private func apply(_ state: EngineState, _ snapshot: RuntimeConfig, containers rows: [ContainerRow] = [], images imageRows: [ImageRow] = [], imageError failure: String? = nil) {
+    private func apply(_ state: EngineState, _ snapshot: RuntimeConfig, containers rows: [ContainerRow] = [], containerError listFailure: String? = nil,
+                       images imageRows: [ImageRow] = [], imageError failure: String? = nil) {
         guard config == snapshot else { return }
         // Read what the other pages show as soon as the engine is up, so none of them opens empty.
         if state == .running && engine != .running { Task { await prefetchPages() } }
         if engine != state { engine = state }
         if containers != rows { containers = rows }
+        if containerError != listFailure { containerError = listFailure }
         if images != imageRows { images = imageRows }
         if imageError != failure { imageError = failure }
     }
@@ -273,10 +287,13 @@ enum Preference {
     // MARK: Sheets
 
     func present(_ route: SheetRoute) {
+        // A newer request wins: a delayed one still waiting below must not show its older sheet later.
+        presentation += 1
         guard sheet != nil else { sheet = route; return }
         // macOS shows one sheet at a time: let the current one finish closing first.
         sheet = nil
-        Task { try? await Task.sleep(for: .milliseconds(350)); sheet = route }
+        let request = presentation
+        Task { try? await Task.sleep(for: .milliseconds(350)); if presentation == request { sheet = route } }
     }
     private func isShowing(_ job: Job) -> Bool {
         if case .output(let shown)? = sheet { return shown === job }

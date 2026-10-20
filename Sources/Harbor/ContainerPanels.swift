@@ -23,7 +23,9 @@ struct ContainerStatsView: View {
             if !container.running {
                 ContentUnavailableView("Not Running", systemImage: "chart.xyaxis.line", description: Text("Start the container to see its CPU and memory."))
             } else if let failure {
-                ContentUnavailableView { Label("No Statistics", systemImage: "exclamationmark.triangle") } description: { Text(failure).textSelection(.enabled) }
+                ContentUnavailableView { Label("No Statistics", systemImage: "exclamationmark.triangle") } description: {
+                    Text(failure + "\n\nTrying again every few seconds.").textSelection(.enabled)
+                }
             } else if latest == nil {
                 ProgressView("Sampling…").frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -112,7 +114,10 @@ struct ContainerStatsView: View {
                 latest = current; previous = (current, now); failure = nil
             } catch {
                 if Task.isCancelled { return }
-                failure = error.localizedDescription; return
+                // Keep trying: a busy engine or a restart should not end sampling until the tab is reopened.
+                failure = error.localizedDescription
+                try? await Task.sleep(for: .seconds(3))
+                continue
             }
             try? await Task.sleep(for: .seconds(1))
         }

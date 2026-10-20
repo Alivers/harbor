@@ -11,8 +11,14 @@ struct ImagesView: View {
 
     private var rows: [ImageRow] { search.isEmpty ? store.images : store.images.filter { $0.reference.localizedCaseInsensitiveContains(search) } }
 
+    private var subtitle: String {
+        guard store.engine.isRunning else { return "" }
+        // A failed read keeps the previous list on screen; say so instead of hiding it.
+        return "\(store.images.count) local" + (store.imageError != nil && !store.images.isEmpty ? " · not refreshed" : "")
+    }
+
     var body: some View {
-        PageScaffold(title: "Images", subtitle: store.engine.isRunning ? "\(store.images.count) local" : "") {
+        PageScaffold(title: "Images", subtitle: subtitle) {
             GlassControls {
                 GlassSearchField(text: $search, prompt: "Repository or tag")
                 Button { store.present(.build(BuildOptions())) } label: { HeaderIcon(systemName: "hammer") }
@@ -29,7 +35,7 @@ struct ImagesView: View {
                 }
                 .disabled(!store.engine.isRunning)
             }
-            PrimaryActionButton(title: "Pull Image (⇧⌘P)") { store.present(.pull) }
+            PrimaryActionButton(title: "Pull Image (⇧⌘P)", systemImage: "arrow.down") { store.present(.pull) }
                 .disabled(!store.engine.isRunning)
         } content: {
             content
@@ -85,6 +91,7 @@ struct ImagesView: View {
                     .disabled(chosen.isEmpty)
             }
             .huggingGlassPanel(height: 12 + CGFloat(rows.count) * ImageListRow.height)
+            .onChange(of: store.images.map(\.id)) { _, ids in selection.formIntersection(ids) }
         }
     }
 }
@@ -93,6 +100,7 @@ private struct ImageListRow: View {
     static let height: CGFloat = 60
     @Environment(Store.self) private var store
     let image: ImageRow
+    @Environment(\.rowSelected) private var selected
     @ViewState<Bool> private var hovering = false
     var body: some View {
         let busy = store.isBusy("image " + image.reference)
@@ -128,7 +136,7 @@ private struct ImageListRow: View {
                 if busy { ProgressView().controlSize(.small) }
                 else {
                     Button("Run…") { store.present(.run(RunOptions(image: image.reference))) }
-                        .buttonStyle(MiniButtonStyle()).opacity(hovering ? 1 : 0)
+                        .buttonStyle(MiniButtonStyle()).opacity(hovering || selected ? 1 : 0)
                 }
             }
             .frame(width: 58, alignment: .trailing)

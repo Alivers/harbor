@@ -1,6 +1,6 @@
 import Foundation
 
-/// A published port; `url` is where a browser on this Mac reaches it.
+/// A published port; `url` is where a browser on this Mac reaches it, over HTTPS when either side is a TLS port.
 public struct PortMapping: Hashable, Sendable {
     public var hostAddress: String
     public var hostPort: Int
@@ -13,7 +13,8 @@ public struct PortMapping: Hashable, Sendable {
     public var url: URL? {
         guard transport == "tcp" else { return nil }
         let host = ["", "0.0.0.0", "::", "[::]"].contains(hostAddress) ? "localhost" : hostAddress.contains(":") && !hostAddress.hasPrefix("[") ? "[\(hostAddress)]" : hostAddress
-        return URL(string: "http://\(host):\(hostPort)")
+        let secure = [443, 8443].contains(containerPort) || [443, 8443].contains(hostPort)
+        return URL(string: "\(secure ? "https" : "http")://\(host):\(hostPort)")
     }
 }
 

@@ -9,7 +9,7 @@ struct MenuBarContent: View {
     var body: some View {
         Text(engineTitle)
         if store.engine.isRunning {
-            Button("Stop Engine") { store.stopEngine() }.disabled(store.isBusy("engine"))
+            Button("Stop Engine…") { confirmStop() }.disabled(store.isBusy("engine"))
         } else if store.engine.isInstalled {
             Button("Start Engine") { store.startEngine() }.disabled(store.isBusy("engine"))
         }
@@ -43,6 +43,17 @@ struct MenuBarContent: View {
         Divider()
         Button("Quit Harbor") { NSApplication.shared.terminate(nil) }.keyboardShortcut("q")
     }
+    /// The same confirmation as the Engine page: stopping the engine stops every container.
+    private func confirmStop() {
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.messageText = "Stop Apple Container?"
+        alert.informativeText = "All running containers stop with it."
+        alert.addButton(withTitle: "Stop Engine").hasDestructiveAction = true
+        alert.addButton(withTitle: "Cancel")
+        if alert.runModal() == .alertFirstButtonReturn { store.stopEngine() }
+    }
+
     private var engineTitle: String {
         switch store.engine {
         case .checking: "Apple Container: connecting…"

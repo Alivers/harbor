@@ -85,7 +85,10 @@ struct PageScaffold<Controls: View, Content: View>: View {
     var subtitle: String = ""
     @ViewBuilder var controls: Controls
     @ViewBuilder var content: Content
+    @Environment(Store.self) private var store
     var body: some View {
+        // While the capsule shows, the panes end above it, so it never covers a list's last rows.
+        let capsule = !store.runningJobs.isEmpty || store.banner != nil
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -101,9 +104,12 @@ struct PageScaffold<Controls: View, Content: View>: View {
             }
             .frame(height: 40)
             .background { WindowDragArea() }
-            content.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .padding(.bottom, capsule ? 64 : 0)
         }
         .overlay(alignment: .bottom) { ActivityCapsule().padding(.bottom, 16) }
+        .animation(.smooth(duration: 0.3), value: capsule)
     }
 }
 
@@ -230,6 +236,13 @@ struct PillPicker<Option: Hashable & Identifiable & RawRepresentable>: View wher
     var small = false
     @Environment(\.colorScheme) private var scheme
     var body: some View {
+        // Scrolls sideways rather than clipping when the pills do not fit (narrow panes, larger text).
+        ViewThatFits(in: .horizontal) {
+            pills
+            ScrollView(.horizontal) { pills }.scrollIndicators(.never)
+        }
+    }
+    private var pills: some View {
         HStack(spacing: small ? 4 : 6) {
             ForEach(options) { option in
                 let on = option == selection
@@ -257,6 +270,15 @@ struct PaneDivider: View {
     }
 }
 
+private struct RowSelectedKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues {
+    /// Set on a `SelectableRows` row while it is selected, so its actions show without hovering.
+    var rowSelected: Bool {
+        get { self[RowSelectedKey.self] }
+        set { self[RowSelectedKey.self] = newValue }
+    }
+}
+
 /// Rows on a pane with the design's violet selection, which stays violet when the list is not focused.
 /// Click selects, Command-click toggles, Shift-click extends; arrow keys move, Return or a double-click opens,
 /// Delete asks to delete, and the context menu acts on the selection when the clicked row is part of it.
@@ -278,6 +300,7 @@ struct SelectableRows<Item: Identifiable, Row: View, MenuContent: View>: View wh
                 LazyVStack(spacing: 0) {
                     ForEach(items) { item in
                         row(item)
+                            .environment(\.rowSelected, selection.contains(item.id))
                             .padding(.horizontal, 10)
                             .frame(height: rowHeight)
                             .background(selection.contains(item.id) ? Color.harbor.opacity(scheme == .dark ? 0.16 : 0.14) : Color.clear,

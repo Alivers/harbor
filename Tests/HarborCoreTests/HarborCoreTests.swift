@@ -11,7 +11,9 @@ final class HarborCoreTests {
         XCTAssertEqual(containers[0].portMappings.first?.url?.absoluteString, "http://localhost:8080")
         let bound = PortMapping(hostAddress: "127.0.0.1", hostPort: 5353, containerPort: 53, transport: "UDP")
         XCTAssertNil(bound.url); XCTAssertEqual(bound.label, "5353 → 53/udp")
-        XCTAssertEqual(PortMapping(hostAddress: "::1", hostPort: 8443, containerPort: 443).url?.absoluteString, "http://[::1]:8443")
+        XCTAssertEqual(PortMapping(hostAddress: "::1", hostPort: 8443, containerPort: 443).url?.absoluteString, "https://[::1]:8443")
+        XCTAssertEqual(PortMapping(hostPort: 9443, containerPort: 443).url?.absoluteString, "https://localhost:9443")
+        XCTAssertEqual(PortMapping(hostPort: 8080, containerPort: 80).url?.absoluteString, "http://localhost:8080")
         let legacy = #"[{"configuration":{"id":"web","image":{"reference":"nginx:alpine"}},"status":"stopped"}]"#
         XCTAssertEqual(try NativeParser.containers(legacy)[0].state, "stopped")
         XCTAssertThrowsError(try NativeParser.containers("[{}]"))
@@ -315,6 +317,12 @@ final class HarborCoreTests {
         catch { XCTAssertTrue(error.localizedDescription.contains("2 MB")) }
         XCTAssertLessThan(Date().timeIntervalSince(start), 30)
     }
+    func testOutputLimitCanBeRaised() async throws {
+        do { _ = try await Runner.run(Command("/bin/sh", ["-c", "head -c 4096 /dev/zero"]), timeout: 10, outputLimit: 1024); XCTFail("must stop") }
+        catch { XCTAssertTrue(error.localizedDescription.contains("1 KB")) }
+        let result = try await Runner.run(Command("/bin/sh", ["-c", "head -c 3000000 /dev/zero"]), timeout: 20, outputLimit: 8 * 1_048_576)
+        XCTAssertEqual(result.status, 0)
+    }
     func testNonzeroExitIsReported() async throws {
         do { _ = try await Runner.checked(Command("/bin/sh", ["-c", "echo backend-error >&2; exit 7"])); XCTFail("must throw") }
         catch { XCTAssertTrue(error.localizedDescription.contains("backend-error")) }
@@ -382,9 +390,10 @@ func XCTAssertThrowsError<T>(_ expression: @autoclosure () throws -> T) {
         try await suite.testLargeStdoutAndStderrDoNotDeadlock()
         try await suite.testOutputStreamsWhileRunning()
         try await suite.testOversizedOutputStopsEarly()
+        try await suite.testOutputLimitCanBeRaised()
         try await suite.testNonzeroExitIsReported()
         try await suite.testTimeoutTerminatesProcess()
         try await suite.testCancellationTerminatesProcess()
-        print("PASS: 27 checks — native JSON, registry ports, image references, native isolation, tokenizer, command catalog, scoped help, Docker socket isolation, Compose paths, Compose file order, JSON, literal arguments, 1.5.0 details and stats, run form flags, build/network/volume forms, Compose services, container files and Docker import, text tables, shell quoting, installer source, Terminal script, large output, streaming output, output limit, errors, timeout, cancellation")
+        print("PASS: 28 checks — native JSON, registry ports, image references, native isolation, tokenizer, command catalog, scoped help, Docker socket isolation, Compose paths, Compose file order, JSON, literal arguments, 1.5.0 details and stats, run form flags, build/network/volume forms, Compose services, container files and Docker import, text tables, shell quoting, installer source, Terminal script, large output, streaming output, output limit, raised output limit, errors, timeout, cancellation")
     }
 }

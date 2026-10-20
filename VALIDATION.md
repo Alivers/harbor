@@ -74,6 +74,19 @@ Screenshots showed the app still far from the chosen design: system split view, 
 - **What changed:** no title bar, with the system's own window buttons moved into the sidebar pane; floating panes for sidebar, page and inspector; a custom list with violet selection; an app-drawn backdrop (aurora blocks by default; harbor, desktop picture and custom picture in Settings) with panes that show a pre-blurred copy of it under design B's clear glass (or C's crystal); Core Animation pane shadows. Earlier versions were checked from screenshots on a Mac: a clear window showed other apps' text through the panes; a behind-window blur (system materials) turned every pane into a white card over a gray window, because glass needs color behind it.
 - **Built by CI.** The drawn backdrop has not been looked at on a Mac yet. Still to check there: the aurora backdrop and the clear and crystal panes in light and dark mode, the desktop-picture backdrop staying lined up while the window moves (it updates on the window's move notifications) and across screens, the custom picture, the traffic lights' hover symbols, window dragging from gaps and titles, the inspector slide, keyboard selection in lists and Reduce Transparency.
 
+## Update: review fixes
+
+From a code review, checked against the code and fixed (built by CI; the core checks run on Linux):
+
+- A failed container list no longer switches every page to setup: it is read again after a second, and a failed parse or image read keeps the previous rows with a "not refreshed" note.
+- A newer sheet request cancels an older one still waiting, so fast clicks cannot reopen a stale sheet.
+- Stats keep retrying after an error instead of stopping until the tab is reopened.
+- The menu bar's Stop Engine asks first, like the Engine page.
+- Followed logs may stream past the 2 MB cap (up to 256 MB) and keep the last megabyte on screen; `testOutputLimitCanBeRaised` covers the configurable limit.
+- Panes end above the activity capsule while it shows; inspector pills scroll instead of clipping; row actions show on the selected row as well as on hover; picture backdrops get a veil for contrast; deleted items leave the selection; published TLS ports (443, 8443) open over HTTPS.
+
+Not changed, by choice: Settings still apply when the window closes (the macOS convention, and the paths show whether they exist); the Images badge stays as in the design; the resource pages keep their own card layout for now.
+
 ## Not yet verified
 
 Apple Container / Socktainer are not formally installed on the test machine, so none of the following count as completed end-to-end tests:

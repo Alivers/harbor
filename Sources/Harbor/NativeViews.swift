@@ -67,7 +67,8 @@ struct ResourceView: View {
                 }
             }
             if let create = page.createAction {
-                PrimaryActionButton(title: create.title) { store.present(create.route) }.disabled(!store.engine.isRunning)
+                PrimaryActionButton(title: create.title, systemImage: page == .build ? "hammer" : "plus") { store.present(create.route) }
+                    .disabled(!store.engine.isRunning)
             }
         } content: {
             VStack(alignment: .leading, spacing: 16) {

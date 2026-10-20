@@ -49,14 +49,17 @@ public enum HarborError: LocalizedError {
 }
 
 public enum Runner {
-    /// Per-stream output cap; anything larger belongs in Terminal.
+    /// Default per-stream output cap; anything larger belongs in Terminal.
     public static let outputLimit: UInt64 = 2 * 1024 * 1024
 
     // Separate temporary files drain both streams without pipe-buffer deadlocks.
     // Commands run off the main thread; timeout/cancellation terminates this process only, and so does
     // output beyond `outputLimit`, so a chatty command cannot fill the disk before it exits.
     // `onOutput` receives new complete lines about every 250 ms while the command runs, then the unterminated rest.
-    public static func run(_ command: Command, timeout: TimeInterval = 30, onOutput: (@Sendable (String) -> Void)? = nil) async throws -> CommandResult {
+    // A stream the caller consumes as it arrives (followed logs) can pass a larger `outputLimit`.
+    public static func run(_ command: Command, timeout: TimeInterval = 30, outputLimit: UInt64 = Runner.outputLimit,
+                           onOutput: (@Sendable (String) -> Void)? = nil) async throws -> CommandResult {
+        let tooLarge = tooLargeMessage(outputLimit)
         let job = Task.detached(priority: .userInitiated) { () throws -> CommandResult in
             let fm = FileManager.default
             guard fm.isExecutableFile(atPath: command.executable) else {
@@ -107,7 +110,10 @@ public enum Runner {
         guard result.status == 0 else { throw HarborError.message(result.combined.isEmpty ? "Command failed with exit code \(result.status)" : result.combined) }
         return result.output
     }
-    private static let tooLarge = "Command output exceeds 2 MB; view it in Terminal."
+    static func tooLargeMessage(_ limit: UInt64) -> String {
+        let size = limit >= 1_048_576 ? "\(limit / 1_048_576) MB" : "\(limit / 1024) KB"
+        return "Command output exceeds \(size); view it in Terminal."
+    }
 }
 
 /// One captured output stream: the child process writes the file, the runner reads it back.

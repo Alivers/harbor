@@ -142,7 +142,10 @@ struct BackdropContent: View {
     var body: some View {
         Group {
             if style.followsScreen, let picture {
+                // Any photo can sit behind the panes, so a veil in the Aurora Ice background color evens it out
+                // and keeps text on clear glass readable over busy or dark pictures.
                 Image(nsImage: picture).resizable().aspectRatio(contentMode: .fill)
+                    .overlay { dark ? Color(hex: 0x0E1030).opacity(0.5) : Color(hex: 0xE9EEFF).opacity(0.45) }
             } else if style == .harbor {
                 Canvas { context, size in HarborPainter.draw(in: &context, size: size, dark: dark) }
             } else {

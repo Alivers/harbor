@@ -58,6 +58,8 @@ struct ContainersView: View {
             }
         }
         .animation(.smooth(duration: 0.32), value: showInspector)
+        // Containers that are gone (deleted here or elsewhere) leave the selection.
+        .onChange(of: store.containers.map(\.id)) { _, ids in selection.formIntersection(ids) }
         .confirmationDialog(deleteTitle, isPresented: Binding(get: { !pendingDelete.isEmpty }, set: { if !$0 { pendingDelete = [] } }),
                             titleVisibility: .visible) {
             Button(pendingDelete.contains(where: \.running) ? "Stop and Delete" : "Delete", role: .destructive) { pendingDelete.forEach { store.delete($0) } }
@@ -110,6 +112,11 @@ struct ContainersView: View {
                 HStack {
                     PillPicker(selection: $filter, options: ContainerFilter.allCases)
                     Spacer()
+                    if let failure = store.containerError {
+                        Label("Not refreshed", systemImage: "exclamationmark.triangle")
+                            .font(.system(size: 11, weight: .medium)).foregroundStyle(.orange)
+                            .help("The last read of the container list failed; showing the previous one.\n\n" + failure)
+                    }
                 }
                 .padding(EdgeInsets(top: 12, leading: 14, bottom: 10, trailing: 14))
                 PaneDivider()
@@ -177,6 +184,7 @@ private struct ContainerListRow: View {
     static let height: CGFloat = 60
     @Environment(Store.self) private var store
     let container: ContainerRow
+    @Environment(\.rowSelected) private var selected
     @ViewState<Bool> private var hovering = false
     var body: some View {
         let busy = store.isBusy(container.id)
@@ -211,7 +219,8 @@ private struct ContainerListRow: View {
             .buttonStyle(.plain)
             .foregroundStyle(Color.harborSub)
             .frame(width: 52, alignment: .trailing)
-            .opacity(hovering || busy ? 1 : 0)
+            // Shown on hover, and on the selected row so the keyboard and a trackpad tap reach them too.
+            .opacity(hovering || selected || busy ? 1 : 0)
         }
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.15), value: hovering)
@@ -395,12 +404,21 @@ private struct ContainerLogs: View {
         .task(id: container.id) { canFollow = await store.supports(["logs"], flag: "--follow") }
         .task(id: Request(id: container.id, follow: follow, reloads: reloads)) { await load() }
     }
+    /// Followed logs keep at most about this many characters; older lines are dropped as new ones arrive.
+    private static let kept = 1_000_000
     private func load() async {
         text = ""; source = UUID()
         let (chunks, sink) = AsyncStream.makeStream(of: String.self)
-        let reader = Task { for await chunk in chunks { text += chunk } }
+        let reader = Task {
+            for await chunk in chunks {
+                text += chunk
+                if text.utf16.count > Self.kept { text = "[Earlier lines dropped]\n" + String(text.suffix(Self.kept / 2)) }
+            }
+        }
         let command = store.config.nativeCommand(["logs", "-n", "500"] + (follow ? ["--follow"] : []) + [container.id])
-        do { _ = try await Runner.run(command, timeout: follow ? 3600 : 30) { sink.yield($0) } }
+        // A followed stream is read as it arrives, so it may run far past the usual 2 MB cap.
+        let limit: UInt64 = follow ? 256 * 1_048_576 : Runner.outputLimit
+        do { _ = try await Runner.run(command, timeout: follow ? 3600 : 30, outputLimit: limit) { sink.yield($0) } }
         catch { if !Task.isCancelled { sink.yield("\n" + error.localizedDescription + "\n") } }
         sink.finish(); await reader.value
     }
