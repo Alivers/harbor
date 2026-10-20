@@ -79,43 +79,67 @@ struct AuroraBackdrop: View {
 /// They give the glass panels edges to blur and bend; they fade towards the top, where most text sits.
 private struct HarborScape: View {
     let dark: Bool
+    private static let lightColors: [UInt32] = [0xB6A8FF, 0xA9CCFF, 0x9EE8CF, 0xFFC3DA, 0xD6CCFF, 0xC9D8FF]
+    private static let darkColors: [UInt32] = [0x3A2E8C, 0x1E3E70, 0x155E57, 0x5A2A6E, 0x2A2468, 0x1B2150]
+    private static let blockHeight: CGFloat = 46
+    private static let gap: CGFloat = 8
     var body: some View {
         Canvas { context, size in
-            let colors = (dark ? [0x3A2E8C, 0x1E3E70, 0x155E57, 0x5A2A6E, 0x2A2468, 0x1B2150]
-                               : [0xB6A8FF, 0xA9CCFF, 0x9EE8CF, 0xFFC3DA, 0xD6CCFF, 0xC9D8FF]).map { Color(hex: UInt32($0)) }
-            let height: CGFloat = 46, gap: CGFloat = 8
-            let rows = Int(size.height / (height + gap)) + 1
-            for r in 0..<rows {
-                let y = 6 + CGFloat(r) * (height + gap)
-                // Fainter higher up: 0.25 at the top, 0.9 at the bottom.
-                let alpha = 0.25 + 0.65 * Double(y / max(size.height, 1))
-                var x = -CGFloat((r * 53) % 120), i = 0
-                while x < size.width {
-                    let width = CGFloat(120 + ((r * 31 + i * 47) % 4) * 30)
-                    if (r * 7 + i * 3) % 9 != 0 {
-                        let block = CGRect(x: x, y: y, width: width, height: height)
-                        context.fill(Path(roundedRect: block, cornerRadius: 5), with: .color(colors[(r * 3 + i * 5) % colors.count].opacity(alpha)))
-                        var rib = block.minX + 10
-                        while rib < block.maxX - 8 {
-                            context.fill(Path(CGRect(x: rib, y: block.minY + 8, width: 3, height: height - 16)), with: .color(.black.opacity((dark ? 0.2 : 0.07) * alpha)))
-                            rib += 13
-                        }
-                    }
-                    x += width + gap; i += 1
-                }
-            }
-            for (k, color) in [Color.white.opacity(dark ? 0.16 : 0.55), Color(hex: dark ? 0x5EE6B5 : 0x8CF0D0).opacity(dark ? 0.22 : 0.5)].enumerated() {
-                var wave = Path()
-                let base = size.height * (0.44 + 0.05 * CGFloat(k)), amplitude: CGFloat = 12
-                for step in 0...120 {
-                    let x = size.width * CGFloat(step) / 120
-                    let point = CGPoint(x: x, y: base + amplitude * sin(CGFloat(step) / 120 * .pi * 4 + CGFloat(k) * 1.9))
-                    if step == 0 { wave.move(to: point) } else { wave.addLine(to: point) }
-                }
-                context.stroke(wave, with: .color(color), style: StrokeStyle(lineWidth: 14, lineCap: .round, lineJoin: .round))
-            }
+            drawContainers(in: &context, size: size)
+            drawWaves(in: &context, size: size)
         }
         .allowsHitTesting(false)
+    }
+    // Types are spelled out: mixed integer and CGFloat literals here are slow for the type checker.
+    private func drawContainers(in context: inout GraphicsContext, size: CGSize) {
+        let colors: [Color] = (dark ? Self.darkColors : Self.lightColors).map { Color(hex: $0) }
+        let pitch: CGFloat = Self.blockHeight + Self.gap
+        let rows: Int = Int(size.height / pitch) + 1
+        let ribShade: Double = dark ? 0.2 : 0.07
+        for r in 0..<rows {
+            let y: CGFloat = 6 + CGFloat(r) * pitch
+            // Fainter higher up: 0.25 at the top, 0.9 at the bottom.
+            let depth: Double = Double(y / max(size.height, 1))
+            let alpha: Double = 0.25 + 0.65 * depth
+            let offset: Int = (r * 53) % 120
+            var x: CGFloat = -CGFloat(offset)
+            var i: Int = 0
+            while x < size.width {
+                let widthStep: Int = (r * 31 + i * 47) % 4
+                let width: CGFloat = CGFloat(120 + widthStep * 30)
+                if (r * 7 + i * 3) % 9 != 0 {
+                    let block = CGRect(x: x, y: y, width: width, height: Self.blockHeight)
+                    let color: Color = colors[(r * 3 + i * 5) % colors.count]
+                    context.fill(Path(roundedRect: block, cornerRadius: 5), with: .color(color.opacity(alpha)))
+                    var rib: CGFloat = block.minX + 10
+                    while rib < block.maxX - 8 {
+                        let ribRect = CGRect(x: rib, y: block.minY + 8, width: 3, height: Self.blockHeight - 16)
+                        context.fill(Path(ribRect), with: .color(Color.black.opacity(ribShade * alpha)))
+                        rib += 13
+                    }
+                }
+                x += width + Self.gap
+                i += 1
+            }
+        }
+    }
+    private func drawWaves(in context: inout GraphicsContext, size: CGSize) {
+        let white: Color = Color.white.opacity(dark ? 0.16 : 0.55)
+        let mint: Color = Color(hex: dark ? 0x5EE6B5 : 0x8CF0D0).opacity(dark ? 0.22 : 0.5)
+        let waves: [Color] = [white, mint]
+        let amplitude: CGFloat = 12
+        for (k, color) in waves.enumerated() {
+            let base: CGFloat = size.height * (0.44 + 0.05 * CGFloat(k))
+            let phase: CGFloat = CGFloat(k) * 1.9
+            var wave = Path()
+            for step in 0...120 {
+                let t: CGFloat = CGFloat(step) / 120
+                let angle: CGFloat = t * 4 * CGFloat.pi + phase
+                let point = CGPoint(x: size.width * t, y: base + amplitude * sin(angle))
+                if step == 0 { wave.move(to: point) } else { wave.addLine(to: point) }
+            }
+            context.stroke(wave, with: .color(color), style: StrokeStyle(lineWidth: 14, lineCap: .round, lineJoin: .round))
+        }
     }
 }
 
