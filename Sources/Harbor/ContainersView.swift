@@ -81,7 +81,7 @@ struct ContainersView: View {
                     .pickerStyle(.inline)
             }
             HeaderMenu(systemName: "ellipsis", help: "All native container commands") { NativeActionItems(group: "Containers") }
-            Button { showInspector.toggle() } label: { HeaderIcon(systemName: "sidebar.trailing") }
+            Button(action: toggleInspector) { HeaderIcon(systemName: "sidebar.trailing") }
                 .buttonStyle(.plain)
                 .keyboardShortcut("i", modifiers: [.command, .option])
                 .help("Show or hide details (⌥⌘I)")
@@ -166,6 +166,11 @@ struct ContainersView: View {
         Button("Delete…", role: .destructive) { pendingDelete = [c] }.disabled(busy)
     }
     private func show(_ c: ContainerRow, _ section: InspectorTab) { selection = [c.id]; tab = section; showInspector = true }
+    /// Opening the details with nothing selected shows the first container rather than an empty pane.
+    private func toggleInspector() {
+        if !showInspector, selection.isEmpty, let first = rows.first { selection = [first.id] }
+        showInspector.toggle()
+    }
 }
 
 private struct ContainerListRow: View {
@@ -250,10 +255,14 @@ private struct ContainerInspector: View {
             } else if selectionCount > 1 {
                 ContentUnavailableView("\(selectionCount) Containers Selected", systemImage: "square.stack",
                                        description: Text("Right-click the selection to start, stop or delete them together."))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ContentUnavailableView("No Selection", systemImage: "sidebar.trailing", description: Text("Select a container to see its details and logs."))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        // The header stays at the top whatever the pane shows below it.
+        .frame(maxHeight: .infinity, alignment: .top)
         .padding(EdgeInsets(top: 16, leading: 16, bottom: 14, trailing: 16))
     }
     /// The design's small glass buttons at the foot of the pane.
