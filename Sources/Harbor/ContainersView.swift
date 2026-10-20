@@ -54,7 +54,6 @@ struct ContainersView: View {
                     .frame(width: 330)
                     .frame(maxHeight: .infinity)
                     .glassPanel()
-                    // A slide only: fading would group the pane and drop its blur until the animation ends.
                     .transition(.move(edge: .trailing))
             }
         }

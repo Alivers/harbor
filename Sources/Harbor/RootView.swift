@@ -36,11 +36,10 @@ struct SidebarSection: Identifiable {
         SidebarSection(title: "System", pages: [.engine, .registries, .commands])]
 }
 
-/// The window as the design draws it: no title bar and no background of its own, just panes of glass floating over
-/// the desktop with gaps between them. The sidebar is a pane of its own, with the window's buttons inside it.
+/// The window as the design draws it: no title bar, a lightly frosted window, and panes of glass floating on it with
+/// gaps between them. The sidebar is a pane of its own, with the window's buttons inside it.
 struct RootView: View {
     @Environment(Store.self) private var store
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @SceneStorage("page") private var page: Page = .containers
     var body: some View {
         @Bindable var store = store
@@ -52,7 +51,6 @@ struct RootView: View {
         .foregroundStyle(Color.harborInk)
         // The gaps between the panes move the window.
         .background { WindowDragArea() }
-        .background { TransparentWindow(transparent: !reduceTransparency) }
         .ignoresSafeArea()
         .sheet(item: $store.sheet) { route in SheetView(route: route) }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in

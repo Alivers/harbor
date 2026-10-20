@@ -2,8 +2,9 @@ import SwiftUI
 import AppKit
 
 // Aurora Ice with hybrid glass, as in the design's E + 4 window (light) and its deep-indigo night version.
-// The window is clear; panes of crystal glass float over the desktop, and small floating controls use the system's
-// clear Liquid Glass. (The harbor in the design's mockup is its desktop wallpaper, not part of the app.)
+// The window is lightly frosted glass over the desktop (the system's ultra-thin material); panes of crystal glass float
+// on it, and small floating controls use the system's clear Liquid Glass. The harbor in the design's mockup is its
+// desktop wallpaper, not part of the app.
 // Every value below comes from the design unless a comment says otherwise.
 
 extension Color {
@@ -49,55 +50,7 @@ extension EnvironmentValues {
     }
 }
 
-/// The window's own fill. In the design the window is a sheet of clear glass over the desktop: tinted 8 % lilac white,
-/// not blurred, so the desktop and the windows below stay sharp around the panes. Only the panes frost what is behind
-/// them. With Reduce Transparency the window is solid.
-struct WindowBackdrop: View {
-    @Environment(\.colorScheme) private var scheme
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    var body: some View {
-        if reduceTransparency { Color(nsColor: .windowBackgroundColor) }
-        else { scheme == .dark ? Color(hex: 0x1A1B3A).opacity(0.10) : Color(hex: 0xFAF8FF).opacity(0.08) }
-    }
-}
-
-/// What lies behind the window (the desktop and other windows), blurred by the window server.
-/// It must not sit under a SwiftUI clip or mask, or an opacity applied to a group: the window server then draws
-/// nothing and the pane turns fully transparent. It rounds itself with `maskImage` instead.
-struct DesktopBlur: NSViewRepresentable {
-    var cornerRadius: CGFloat = 0
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.blendingMode = .behindWindow
-        view.material = .underWindowBackground
-        view.state = .active
-        return view
-    }
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {
-        if context.coordinator.radius != cornerRadius {
-            context.coordinator.radius = cornerRadius
-            view.maskImage = cornerRadius > 0 ? Self.mask(radius: cornerRadius) : nil
-        }
-    }
-    final class Coordinator { var radius: CGFloat = 0 }
-    func makeCoordinator() -> Coordinator { Coordinator() }
-    /// A stretchable rounded mask, the documented way to round a behind-window blur. The corners use SwiftUI's
-    /// continuous curve so they match the pane's outline, which reaches about 1.6 radii along each edge.
-    private static func mask(radius: CGFloat) -> NSImage {
-        let inset = ceil(radius * 1.6)
-        let side = inset * 2 + 1
-        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
-            NSColor.black.setFill()
-            NSBezierPath(cgPath: RoundedRectangle(cornerRadius: radius, style: .continuous).path(in: rect).cgPath).fill()
-            return true
-        }
-        image.capInsets = NSEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
-        image.resizingMode = .stretch
-        return image
-    }
-}
-
-/// The design's crystal recipe over the blurred backdrop: a lilac-white gradient, an inner glow that is strongest at the
+/// The design's crystal recipe over the frosted window: a lilac-white gradient, an inner glow that is strongest at the
 /// top, a sheen from the top-left, a bright line along the top edge, a faint shade along the bottom, a hairline border.
 private struct CrystalSurface: View {
     var radius: CGFloat
@@ -113,15 +66,14 @@ private struct CrystalSurface: View {
             drawEdges(in: &context, rect: rect)
         }
     }
-    /// linear-gradient(160deg, tint, tint), with the gradient line spanning the corners as CSS does. The design's
-    /// .55 → .24 is lightened here because the system's blur already brightens the backdrop.
+    /// linear-gradient(160deg, tint .55, tint .24), with the gradient line spanning the corners as CSS does.
     private func drawFill(in context: inout GraphicsContext, size: CGSize) {
         let tint: Color = Color(hex: dark ? 0x1A1B3A : 0xFAF8FF)
         let dx: CGFloat = 0.342, dy: CGFloat = 0.940
         let half: CGFloat = (size.width * dx + size.height * dy) / 2
         let start = CGPoint(x: size.width / 2 - half * dx, y: size.height / 2 - half * dy)
         let end = CGPoint(x: size.width / 2 + half * dx, y: size.height / 2 + half * dy)
-        let gradient = Gradient(colors: [tint.opacity(dark ? 0.42 : 0.32), tint.opacity(dark ? 0.24 : 0.12)])
+        let gradient = Gradient(colors: [tint.opacity(dark ? 0.62 : 0.55), tint.opacity(dark ? 0.38 : 0.24)])
         context.fill(Path(CGRect(origin: .zero, size: size)), with: .linearGradient(gradient, startPoint: start, endPoint: end))
     }
     /// inset 0 22px 36px -28px white .7: the pane shrunk by 28, moved down 22 and blurred (σ 18) leaves a glow
@@ -254,12 +206,11 @@ struct GlassPanel: ViewModifier {
                     .glassEffect(.clear, in: shape)
                     .background { PaneShadow(radius: radius, opacity: dark ? 0.4 : 0.22) }
             } else {
-                // The blur stays outside the clip (see `DesktopBlur`); the glass and the content are clipped.
+                // The window's frosted material is the blur; the pane adds the crystal on top of it.
                 content
                     .environment(\.insidePane, true)
                     .background { CrystalSurface(radius: radius, dark: dark).allowsHitTesting(false) }
                     .clipShape(shape)
-                    .background { DesktopBlur(cornerRadius: radius).allowsHitTesting(false) }
                     .background { PaneShadow(radius: radius, opacity: dark ? 0.4 : 0.26) }
             }
         }

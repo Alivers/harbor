@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 // The window chrome of the design: no title bar, the traffic lights inside the sidebar pane, page titles floating on
-// the desktop, and small controls on clear Liquid Glass.
+// the frosted window, and small controls on clear Liquid Glass.
 
 /// The window's close, minimize and zoom buttons, placed in the sidebar pane as in the design. They are the system's
 /// own buttons (made with `NSWindow.standardWindowButton(_:for:)`), so they keep their look, states and zoom menu;
@@ -59,27 +59,6 @@ struct WindowControls: NSViewRepresentable {
     }
 }
 
-/// Makes the window itself clear, so the desktop and the windows below show between the panes, as in the design,
-/// where the harbor behind the window is the desktop wallpaper. Applied on every update in case SwiftUI resets it.
-struct TransparentWindow: NSViewRepresentable {
-    var transparent: Bool
-    func makeNSView(context: Context) -> WindowHook { WindowHook() }
-    func updateNSView(_ view: WindowHook, context: Context) { view.transparent = transparent; view.apply() }
-
-    final class WindowHook: NSView {
-        var transparent = true
-        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); apply() }
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
-        func apply() {
-            guard let window else { return }
-            window.backgroundColor = transparent ? .clear : .windowBackgroundColor
-            guard window.isOpaque == transparent else { return }
-            window.isOpaque = !transparent
-            window.invalidateShadow()
-        }
-    }
-}
-
 /// Empty space that moves the window, which has no title bar; a double-click zooms or minimizes it as the
 /// system setting for title bars says.
 struct WindowDragArea: View {
@@ -99,7 +78,7 @@ struct WindowDragArea: View {
     }
 }
 
-/// A page as the design lays it out: title and controls float on the clear window, the page's panes sit below,
+/// A page as the design lays it out: title and controls sit on the frosted window, the page's panes sit below,
 /// and the activity capsule floats over the bottom of the column.
 struct PageScaffold<Controls: View, Content: View>: View {
     let title: String
@@ -405,8 +384,7 @@ extension InfoRow where Value == Text {
 
 extension View {
     /// A vertically scrolling page of panes. The scroll view reaches 10 pt past the column on each side, into the
-    /// gaps, so the panes' shadows are not cut off at their edges. It clips only to its own rectangle: a SwiftUI
-    /// clip shape here would stop the panes' blur.
+    /// gaps, so the panes' shadows are not cut off at their edges.
     func paneScroll() -> some View {
         ScrollView { self.padding(.horizontal, 10).padding(.bottom, 64) }
             .padding(.horizontal, -10)

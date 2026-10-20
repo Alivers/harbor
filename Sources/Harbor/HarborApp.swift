@@ -15,8 +15,9 @@ typealias ViewState<Value> = SwiftUI.State<Value>
                 .environment(store)
                 .frame(minWidth: 1000, minHeight: 600)
                 .tint(.harbor)
-                // A faint tint only: the window itself is clear, and the desktop shows through between the panes.
-                .containerBackground(for: .window) { WindowBackdrop() }
+                // The window is lightly frosted glass: the desktop and the windows below show as color, never as
+                // legible detail. The material turns solid by itself with Reduce Transparency.
+                .containerBackground(.ultraThinMaterial, for: .window)
         }
         // No title bar: the panes float right up to the top, and the window's buttons sit in the sidebar pane.
         .windowStyle(.hiddenTitleBar)

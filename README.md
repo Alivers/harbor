@@ -6,9 +6,9 @@ This is the **0.4 preview** and requires **macOS 27** on Apple silicon. The app 
 
 ## Using Harbor
 
-- **Floating glass panes.** No title bar: the sidebar, the page and its details are separate panes of glass floating over your desktop in a clear window, with the window's buttons inside the sidebar. A sidebar groups Workloads, Resources, Environments and System (⌘1–⌘9 jump between pages). Each page has its title, search and actions at the top and opens details in a pane beside it.
+- **Floating glass panes.** No title bar: the sidebar, the page and its details are separate panes of glass floating on a lightly frosted window, with the window's buttons inside the sidebar. A sidebar groups Workloads, Resources, Environments and System (⌘1–⌘9 jump between pages). Each page has its title, search and actions at the top and opens details in a pane beside it.
 - **Aurora Ice, in hybrid glass.** Ice, lilac and mint by day, deep indigo by night, with violet for selection and actions.
-  - Panes are crystal glass: the desktop and windows behind them blurred, under a lilac-white tint with a bright top edge, an inner glow and a sheen.
+  - The window blurs your desktop and the windows below, so their colors come through. Panes are crystal glass on top: a lilac-white tint with a bright top edge, an inner glow, a sheen and a soft shadow.
   - Floating controls, such as the header buttons and the activity capsule, use the system's clear Liquid Glass.
   - Settings › Appearance switches panes to clear glass too. With Reduce Transparency on, the window and panes are solid.
 - **Nothing blocks.** Starting, stopping, pulling or composing runs in the background, and several jobs can run at once; only the resource a job changes is locked. The capsule at the bottom of the window shows what is running, then how it ended. A failure stays until you dismiss it or open its output. The clock button at the foot of the sidebar lists recent jobs with their full output.
