@@ -36,11 +36,15 @@ struct SidebarSection: Identifiable {
         SidebarSection(title: "System", pages: [.engine, .registries, .commands])]
 }
 
-/// The window as the design draws it: no title bar, a lightly frosted window, and panes of glass floating on it with
-/// gaps between them. The sidebar is a pane of its own, with the window's buttons inside it.
+/// The window as the design draws it: no title bar, and panes of glass floating over the backdrop with gaps between
+/// them. The sidebar is a pane of its own, with the window's buttons inside it.
 struct RootView: View {
     @Environment(Store.self) private var store
+    @Environment(Backdrop.self) private var backdrop
+    @Environment(\.colorScheme) private var scheme
+    @AppStorage(Preference.glassStyle) private var glassStyle = GlassStyle.clear.rawValue
     @SceneStorage("page") private var page: Page = .containers
+    private struct MirrorKey: Hashable { let dark: Bool; let glass: String; let revision: Int }
     var body: some View {
         @Bindable var store = store
         HStack(spacing: 14) {
@@ -51,7 +55,15 @@ struct RootView: View {
         .foregroundStyle(Color.harborInk)
         // The gaps between the panes move the window.
         .background { WindowDragArea() }
+        .background(alignment: .topLeading) { BackdropView() }
+        .background { BackdropTracker(backdrop: backdrop) }
+        .clipped()
+        .coordinateSpace(.named(Backdrop.space))
         .ignoresSafeArea()
+        // The panes' blurred copy of the backdrop follows the backdrop, the appearance and the glass style.
+        .task(id: MirrorKey(dark: scheme == .dark, glass: glassStyle, revision: backdrop.revision)) {
+            backdrop.renderMirror(dark: scheme == .dark, glass: GlassStyle(rawValue: glassStyle) ?? .clear)
+        }
         .sheet(item: $store.sheet) { route in SheetView(route: route) }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await store.refresh() }

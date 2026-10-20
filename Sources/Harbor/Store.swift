@@ -42,6 +42,9 @@ enum Preference {
     static let notifications = "notifyWhenInactive"
     /// A `GlassStyle` raw value.
     static let glassStyle = "glassStyle"
+    /// A `BackdropStyle` raw value, and the custom picture's path.
+    static let backdrop = "backdropStyle"
+    static let backdropPicture = "backdropPicture"
     static func enabled(_ key: String) -> Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
 }
 

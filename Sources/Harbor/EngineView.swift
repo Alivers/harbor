@@ -224,6 +224,7 @@ struct EngineView: View {
 /// Edits a draft so half-typed paths never reach the running app; Apply or closing the window commits it.
 struct SettingsView: View {
     @Environment(Store.self) private var store
+    @Environment(Backdrop.self) private var backdrop
     @ViewState<RuntimeConfig?> private var draft: RuntimeConfig?
     @AppStorage(Preference.menuBarExtra) private var showMenuBarExtra = true
     @AppStorage(Preference.notifications) private var notify = true
@@ -232,12 +233,24 @@ struct SettingsView: View {
         let edited = Binding(get: { draft ?? store.config }, set: { draft = $0 })
         Form {
             Section {
+                Picker("Background", selection: Binding(get: { backdrop.style }, set: { backdrop.select($0) })) {
+                    ForEach(BackdropStyle.allCases) { Text($0.rawValue).tag($0) }
+                }
+                if backdrop.style == .custom {
+                    LabeledContent("Picture") {
+                        HStack {
+                            Text(backdrop.picturePath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "None")
+                                .lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary)
+                            Button("Choose…") { backdrop.choosePicture() }
+                        }
+                    }
+                }
                 Picker("Panels", selection: $glassStyle) {
                     ForEach(GlassStyle.allCases) { Text($0.rawValue).tag($0.rawValue) }
                 }
                 .pickerStyle(.segmented)
             } header: { Text("Appearance") } footer: {
-                Text("The window lightly frosts your desktop. Clear panes are the system's clear Liquid Glass with bright edges and a slanted sheen; crystal panes are whiter, with an inner glow. Floating controls are always clear Liquid Glass, and with Reduce Transparency on, the window and panes are solid.")
+                Text("Glass needs color and shape behind it, so Harbor draws its own background: soft aurora blocks, the harbor from the design, your desktop picture lined up with the screen, or a picture you choose. Clear panes barely blur it under bright edges and a slanted sheen; crystal panes frost it more, under a whiter tint. Floating controls are always clear Liquid Glass, and with Reduce Transparency on, the panes are solid.")
             }
             Section {
                 Toggle("Show Harbor in the menu bar", isOn: $showMenuBarExtra)

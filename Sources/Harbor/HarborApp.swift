@@ -7,23 +7,22 @@ typealias ViewState<Value> = SwiftUI.State<Value>
 
 @main struct HarborApp: App {
     @ViewState<Store> private var store = Store()
+    @ViewState<Backdrop> private var backdrop = Backdrop()
     @AppStorage(Preference.menuBarExtra) private var showMenuBarExtra = true
     var body: some Scene {
         // One window: the store's sheet and activity state belong to a single place.
         Window("Harbor", id: "main") {
             RootView()
                 .environment(store)
+                .environment(backdrop)
                 .frame(minWidth: 1000, minHeight: 600)
                 .tint(.harbor)
-                // The window is lightly frosted glass: the desktop and the windows below show as color, never as
-                // legible detail.
-                .containerBackground(for: .window) { WindowBackdrop() }
         }
         // No title bar: the panes float right up to the top, and the window's buttons sit in the sidebar pane.
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1180, height: 760)
         .commands { HarborCommands(store: store) }
-        Settings { SettingsView().environment(store).tint(.harbor) }
+        Settings { SettingsView().environment(store).environment(backdrop).tint(.harbor) }
         MenuBarExtra(isInserted: $showMenuBarExtra) {
             MenuBarContent().environment(store)
         } label: {

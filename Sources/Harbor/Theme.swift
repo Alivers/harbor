@@ -2,9 +2,8 @@ import SwiftUI
 import AppKit
 
 // Aurora Ice with hybrid glass, as in the design's E + 4 window (light) and its deep-indigo night version.
-// The window is lightly frosted glass over the desktop (a behind-window blur); panes of glass float
-// on it, and small floating controls use the system's clear Liquid Glass. The harbor in the design's mockup is its
-// desktop wallpaper, not part of the app.
+// Panes of glass float over a backdrop the app draws (`Backdrop.swift`); small floating controls use the system's
+// clear Liquid Glass.
 // Every value below comes from the design unless a comment says otherwise.
 
 extension Color {
@@ -32,10 +31,11 @@ extension Color {
 
 /// How the content panes are drawn. Floating controls always use the system's clear Liquid Glass.
 enum GlassStyle: String, CaseIterable, Identifiable {
-    /// The design's clear glass (B), the default: the system's clear Liquid Glass with a faint tint, a slanted sheen
-    /// and bright edges.
+    /// The design's clear glass (B), the default: the backdrop barely blurred, with a faint tint, a slanted sheen and
+    /// bright edges.
     case clear = "Clear"
-    /// The design's crystal (C): a stronger lilac-white tint with an inner glow, a sheen from the top-left and edge light.
+    /// The design's crystal (C): the backdrop well blurred under a stronger lilac-white tint, with an inner glow, a sheen
+    /// from the top-left and edge light.
     case crystal = "Crystal"
     var id: String { rawValue }
 }
@@ -51,29 +51,7 @@ extension EnvironmentValues {
     }
 }
 
-/// The window's background: the desktop and the windows below, blurred by the window server, so they show as color
-/// and never as legible detail. With Reduce Transparency the window is solid.
-struct WindowBackdrop: View {
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    var body: some View {
-        if reduceTransparency { Color(nsColor: .windowBackgroundColor) } else { DesktopBlur() }
-    }
-}
-
-/// What lies behind the window, blurred by the window server. SwiftUI's materials only blur what is inside the window:
-/// as a window background they left it opaque gray.
-private struct DesktopBlur: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.blendingMode = .behindWindow
-        view.material = .underWindowBackground
-        view.state = .active
-        return view
-    }
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
-}
-
-/// The design's crystal recipe over the frosted window: a lilac-white gradient, an inner glow that is strongest at the
+/// The design's crystal (C) over the mirrored backdrop: a lilac-white gradient, an inner glow that is strongest at the
 /// top, a sheen from the top-left, a bright line along the top edge, a faint shade along the bottom, a hairline border.
 private struct CrystalSurface: View {
     var radius: CGFloat
@@ -139,7 +117,7 @@ private struct CrystalSurface: View {
     }
 }
 
-/// The design's clear glass (B) over the system's clear Liquid Glass: a 12 % lilac-white tint, a slanted sheen, light
+/// The design's clear glass (B) over the mirrored backdrop: a 12 % lilac-white tint, a slanted sheen, light
 /// along the top and left edges and less along the bottom and right, a faint inner glow and a white hairline border.
 private struct ClearSurface: View {
     var radius: CGFloat
@@ -263,6 +241,18 @@ private struct PaneShadow: NSViewRepresentable {
     }
 }
 
+/// The blurred backdrop behind a pane with the glass drawn over it.
+private struct PaneGlass<Surface: View>: View {
+    @ViewBuilder var surface: Surface
+    var body: some View {
+        ZStack {
+            BackdropMirror()
+            surface
+        }
+        .allowsHitTesting(false)
+    }
+}
+
 /// A pane of glass in the chosen `GlassStyle`. Inside another pane it draws as a lighter well; with Reduce
 /// Transparency it is solid.
 struct GlassPanel: ViewModifier {
@@ -287,19 +277,16 @@ struct GlassPanel: ViewModifier {
                     .background(Color(nsColor: .windowBackgroundColor), in: shape)
                     .overlay { shape.strokeBorder(Color.primary.opacity(0.12)).allowsHitTesting(false) }
             } else if style == GlassStyle.crystal.rawValue {
-                // The window's frosted material is the blur; the pane adds the crystal on top of it.
                 content
                     .environment(\.insidePane, true)
-                    .background { CrystalSurface(radius: radius, dark: dark).allowsHitTesting(false) }
+                    .background { PaneGlass { CrystalSurface(radius: radius, dark: dark) } }
                     .clipShape(shape)
                     .background { PaneShadow(radius: radius, blur: 24, offset: 20, opacity: dark ? 0.4 : 0.26) }
             } else {
-                // Real clear Liquid Glass bends and lightly blurs what is behind; the design's clear recipe sits on it.
                 content
                     .environment(\.insidePane, true)
-                    .background { ClearSurface(radius: radius, dark: dark).allowsHitTesting(false) }
+                    .background { PaneGlass { ClearSurface(radius: radius, dark: dark) } }
                     .clipShape(shape)
-                    .glassEffect(.clear, in: shape)
                     .background { PaneShadow(radius: radius, blur: 17, offset: 14, opacity: dark ? 0.4 : 0.22) }
             }
         }

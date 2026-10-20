@@ -6,11 +6,11 @@ This is the **0.4 preview** and requires **macOS 27** on Apple silicon. The app 
 
 ## Using Harbor
 
-- **Floating glass panes.** No title bar: the sidebar, the page and its details are separate panes of glass floating on a lightly frosted window, with the window's buttons inside the sidebar. A sidebar groups Workloads, Resources, Environments and System (⌘1–⌘9 jump between pages). Each page has its title, search and actions at the top and opens details in a pane beside it.
+- **Floating glass panes.** No title bar: the sidebar, the page and its details are separate panes of glass floating over a colorful backdrop, with the window's buttons inside the sidebar. A sidebar groups Workloads, Resources, Environments and System (⌘1–⌘9 jump between pages). Each page has its title, search and actions at the top and opens details in a pane beside it.
 - **Aurora Ice, in clear glass.** Ice, lilac and mint by day, deep indigo by night, with violet for selection and actions.
-  - The window lightly blurs your desktop and the windows below, so their colors come through.
-  - Panes are the system's clear Liquid Glass with a faint lilac tint, bright edges, a slanted sheen and a soft shadow. Floating controls, such as the header buttons and the activity capsule, are clear Liquid Glass too.
-  - Settings › Appearance switches panes to whiter crystal glass with an inner glow. With Reduce Transparency on, the window and panes are solid.
+  - Glass needs something behind it, so Harbor draws its own backdrop: soft aurora blocks by default. Settings › Appearance offers the harbor from the design, your desktop picture lined up with the screen, or a picture you choose.
+  - Panes are clear glass: the backdrop barely blurred under a faint lilac tint, bright edges, a slanted sheen and a soft shadow. Settings switches them to whiter crystal glass with more blur and an inner glow.
+  - Floating controls, such as the header buttons and the activity capsule, are the system's clear Liquid Glass. With Reduce Transparency on, the panes are solid.
 - **Nothing blocks.** Starting, stopping, pulling or composing runs in the background, and several jobs can run at once; only the resource a job changes is locked. The capsule at the bottom of the window shows what is running, then how it ended. A failure stays until you dismiss it or open its output. The clock button at the foot of the sidebar lists recent jobs with their full output.
 - **Output where it matters.** Logs, inspect output, reports and raw catalog commands open their output right away. Lifecycle actions don't open anything unless they fail.
 - **Containers.** Filter by running or stopped and sort by name, image, state or age. Click a published port to open it in the browser. Rows show actions on hover, and right-click gives you the rest; select several rows to start, stop, restart or delete them together. Double-click a row, or use the details button (⌥⌘I), for:
