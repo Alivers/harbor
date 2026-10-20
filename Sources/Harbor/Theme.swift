@@ -108,15 +108,14 @@ private struct CrystalFill: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         let tint = dark ? Color(hex: 0x1A1B3A) : .white
+        // No drop shadow: a blurred shadow is redrawn on every frame while a panel resizes (the inspector
+        // sliding in), which made that animation stutter. The edge light gives the pane its depth.
         ZStack {
             // Light frosting: what is behind stays recognizable, the edge light and sheen make it glass.
             shape.fill(.ultraThinMaterial)
             shape.fill(LinearGradient(colors: [tint.opacity(dark ? 0.40 : 0.32), tint.opacity(dark ? 0.18 : 0.08)], startPoint: .top, endPoint: .bottom))
             shape.fill(RadialGradient(colors: [.white.opacity(dark ? 0.14 : 0.36), .white.opacity(0)], center: UnitPoint(x: 0.1, y: -0.1), startRadius: 0, endRadius: 460))
         }
-        // The shadow belongs to the pane only; on the content it would shadow every line of text.
-        .compositingGroup()
-        .shadow(color: .black.opacity(dark ? 0.35 : 0.12), radius: 18, x: 0, y: 10)
     }
 }
 

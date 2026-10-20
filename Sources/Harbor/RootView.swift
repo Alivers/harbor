@@ -39,9 +39,11 @@ struct SidebarSection: Identifiable {
 struct RootView: View {
     @Environment(Store.self) private var store
     @SceneStorage("page") private var page: Page = .containers
+    /// Held explicitly so the sidebar stays put while the inspector opens; only the sidebar button hides it.
+    @ViewState<NavigationSplitViewVisibility> private var columns: NavigationSplitViewVisibility = .all
     var body: some View {
         @Bindable var store = store
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columns) {
             Sidebar(selection: $page)
                 .navigationSplitViewColumnWidth(min: 190, ideal: 215, max: 280)
         } detail: {

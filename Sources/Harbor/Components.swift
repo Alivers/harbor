@@ -62,12 +62,15 @@ struct OutputPanel: View {
 struct StateBadge: View {
     let state: String
     let running: Bool
+    /// `.increased` on a selected list row, where the system's highlight would swallow the theme colors.
+    @Environment(\.backgroundProminence) private var prominence
     var body: some View {
+        let selected = prominence == .increased
         Text(state.capitalized)
             .font(.caption.weight(.medium))
-            .foregroundStyle(running ? Color.harborLive : .secondary)
+            .foregroundStyle(selected ? Color.white : running ? Color.harborLive : .secondary)
             .padding(.horizontal, 8).padding(.vertical, 3)
-            .background((running ? Color.harborLive : Color.secondary).opacity(0.14), in: .capsule)
+            .background(selected ? Color.white.opacity(0.22) : (running ? Color.harborLive : Color.secondary).opacity(0.14), in: .capsule)
             .contentTransition(.interpolate)
     }
 }
@@ -76,10 +79,14 @@ struct StateBadge: View {
 struct PortLinks: View {
     let mappings: [PortMapping]
     var limit = 2
+    @Environment(\.backgroundProminence) private var prominence
     var body: some View {
         ForEach(mappings.prefix(limit), id: \.self) { port in
             if let url = port.url {
-                Link(destination: url) { Label(port.label, systemImage: "arrow.up.forward.square").labelStyle(.titleAndIcon).foregroundStyle(Color.harborText) }
+                Link(destination: url) {
+                    Label(port.label, systemImage: "arrow.up.forward.square").labelStyle(.titleAndIcon)
+                        .foregroundStyle(prominence == .increased ? Color.white : Color.harborText)
+                }
                     .font(.caption.monospacedDigit())
                     .help("Open \(url.absoluteString)")
             } else {
@@ -94,12 +101,14 @@ struct PortLinks: View {
 struct RowIcon: View {
     let systemName: String
     var active = true
+    @Environment(\.backgroundProminence) private var prominence
     var body: some View {
+        let selected = prominence == .increased
         Image(systemName: systemName)
             .font(.system(size: 15, weight: .medium))
-            .foregroundStyle(active ? Color.harbor : .secondary)
+            .foregroundStyle(selected ? Color.white : active ? Color.harbor : .secondary)
             .frame(width: 32, height: 32)
-            .background((active ? Color.harbor : Color.secondary).opacity(0.12), in: .rect(cornerRadius: 8))
+            .background(selected ? Color.white.opacity(0.2) : (active ? Color.harbor : Color.secondary).opacity(0.12), in: .rect(cornerRadius: 8))
     }
 }
 

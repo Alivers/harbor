@@ -108,6 +108,9 @@ optional Compose → Docker CLI --host unix://<socktainer socket> → Socktainer
   - `Color.harborLive` (mint) for running, connected and success.
   
   Each has a light and a dark value; keep text at 4.5:1 on glass in both.
+- Page filters (such as All / Running / Stopped) go in the page's panel, not the toolbar. Toolbar items reflow while the inspector slides in and can briefly vanish. The split view's column visibility is held in `RootView`, and inspector and row minimum widths stay small enough that sidebar, list and inspector fit without the sidebar collapsing.
+- Glass panels have no blurred drop shadow: it is redrawn on every frame of a resize and made the inspector animation stutter.
+- Row content with explicit colors (badges, port links, icon tiles) reads `backgroundProminence` and turns white on a selected row, where the system highlight would swallow the theme colors.
 - Lifecycle actions run as quiet jobs with a `subject`; only commands whose output is the point pass `showOutput: true`.
 - Animate state changes with `.animation(_:value:)` scoped to the value that changed, not global animations.
 - Long or growing text goes through `OutputPanel`, never a giant `Text`.

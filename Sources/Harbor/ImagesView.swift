@@ -98,6 +98,7 @@ struct ImagesView: View {
 
 private struct ImageListRow: View {
     @Environment(Store.self) private var store
+    @Environment(\.backgroundProminence) private var prominence
     let image: ImageRow
     @ViewState<Bool> private var hovering = false
     var body: some View {
@@ -121,9 +122,10 @@ private struct ImageListRow: View {
             Spacer(minLength: 12)
             let users = store.containers.filter { ImageReference.sameImage($0.image, image.reference) }
             if !users.isEmpty {
-                Text(users.count == 1 ? "In use" : "Used by \(users.count)").font(.caption.weight(.medium)).foregroundStyle(Color.harborText)
+                Text(users.count == 1 ? "In use" : "Used by \(users.count)").font(.caption.weight(.medium))
+                    .foregroundStyle(prominence == .increased ? Color.white : Color.harborText)
                     .padding(.horizontal, 7).padding(.vertical, 2)
-                    .background(Color.harbor.opacity(0.12), in: .capsule)
+                    .background(prominence == .increased ? Color.white.opacity(0.22) : Color.harbor.opacity(0.12), in: .capsule)
                     .help(users.map(\.name).joined(separator: ", "))
             }
             Text(image.size).font(.callout.monospacedDigit()).foregroundStyle(.secondary)

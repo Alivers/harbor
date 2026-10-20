@@ -51,7 +51,8 @@ struct ContainersView: View {
             .toolbar { toolbar }
             .inspector(isPresented: $showInspector) {
                 ContainerInspector(container: selected, selectionCount: selection.count, tab: $tab, onDelete: { pendingDelete = [$0] })
-                    .inspectorColumnWidth(min: 320, ideal: 400, max: 600)
+                    // Narrow enough that sidebar, list and inspector fit the window without the sidebar collapsing.
+                    .inspectorColumnWidth(min: 280, ideal: 340, max: 560)
             }
             .confirmationDialog(deleteTitle, isPresented: Binding(get: { !pendingDelete.isEmpty }, set: { if !$0 { pendingDelete = [] } }),
                                 titleVisibility: .visible) {
@@ -80,21 +81,38 @@ struct ContainersView: View {
                 Button("Run Container…") { store.present(.run(RunOptions())) }.buttonStyle(.borderedProminent)
                 Button("Pull an Image…") { store.present(.pull) }
             }
-        } else if rows.isEmpty {
-            ContentUnavailableView.search(text: search)
         } else {
-            List(selection: $selection) {
-                ForEach(rows) { ContainerListRow(container: $0) }
+            // The filter lives in the panel, not the toolbar: toolbar items reflow (and briefly vanish)
+            // while the inspector slides in, and here it sits with the list it filters.
+            VStack(spacing: 0) {
+                HStack {
+                    Picker("Show", selection: $filter) { ForEach(ContainerFilter.allCases) { Text($0.rawValue).tag($0) } }
+                        .pickerStyle(.segmented).labelsHidden().fixedSize()
+                    Spacer()
+                }
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                Divider().opacity(0.5)
+                if rows.isEmpty {
+                    if search.isEmpty { ContentUnavailableView("No \(filter.rawValue) Containers", systemImage: "shippingbox") }
+                    else { ContentUnavailableView.search(text: search) }
+                } else {
+                    List(selection: $selection) {
+                        ForEach(rows) { ContainerListRow(container: $0) }
+                    }
+                    .scrollContentBackground(.hidden)
+                    .contextMenu(forSelectionType: String.self) { ids in
+                        let chosen = store.containers.filter { ids.contains($0.id) }
+                        if chosen.count == 1, let c = chosen.first { menu(for: c) }
+                        else if !chosen.isEmpty { bulkMenu(for: chosen) }
+                    } primaryAction: { ids in
+                        selection = ids; tab = .overview; showInspector = true
+                    }
+                    .animation(.smooth, value: rows)
+                }
             }
-            .contextMenu(forSelectionType: String.self) { ids in
-                let chosen = store.containers.filter { ids.contains($0.id) }
-                if chosen.count == 1, let c = chosen.first { menu(for: c) }
-                else if !chosen.isEmpty { bulkMenu(for: chosen) }
-            } primaryAction: { ids in
-                selection = ids; tab = .overview; showInspector = true
-            }
-            .animation(.smooth, value: rows)
-            .glassList()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .glassPanel()
+            .padding(.horizontal, 16).padding(.vertical, 12)
         }
     }
 
@@ -133,10 +151,6 @@ struct ContainersView: View {
     private func show(_ c: ContainerRow, _ section: InspectorTab) { selection = [c.id]; tab = section; showInspector = true }
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .principal) {
-            Picker("Show", selection: $filter) { ForEach(ContainerFilter.allCases) { Text($0.rawValue).tag($0) } }
-                .pickerStyle(.segmented).fixedSize()
-        }
         ToolbarItem(placement: .primaryAction) {
             Menu {
                 Picker("Sort By", selection: $sort) { ForEach(ContainerSort.allCases) { Text($0.rawValue).tag($0) } }
@@ -168,10 +182,14 @@ private struct ContainerListRow: View {
                 Text(container.name).font(.body.weight(.medium)).lineLimit(1)
                 Text(container.image).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
-            .frame(minWidth: 140, alignment: .leading)
-            Spacer(minLength: 12)
-            PortLinks(mappings: container.portMappings)
-            StateBadge(state: container.state, running: container.running)
+            .frame(minWidth: 80, alignment: .leading)
+            .layoutPriority(1)
+            Spacer(minLength: 8)
+            // Ports give way first when the inspector makes the list narrow.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { PortLinks(mappings: container.portMappings); StateBadge(state: container.state, running: container.running) }
+                StateBadge(state: container.state, running: container.running)
+            }
             HStack(spacing: 4) {
                 if busy {
                     ProgressView().controlSize(.small).frame(width: 24)
