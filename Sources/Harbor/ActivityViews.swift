@@ -51,17 +51,23 @@ struct ActivityCapsule: View {
     }
 }
 
-/// Toolbar entry to the recent jobs, with a pulse while something runs.
+/// The way to the recent jobs, at the foot of the sidebar, with a pulse while something runs.
 struct ActivityButton: View {
     @Environment(Store.self) private var store
     @ViewState<Bool> private var showing = false
     var body: some View {
         Button { showing.toggle() } label: {
-            Label("Activity", systemImage: "clock.arrow.circlepath")
+            Image(systemName: "clock.arrow.circlepath")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.harborSub)
                 .symbolEffect(.pulse, isActive: !store.runningJobs.isEmpty)
+                .frame(width: 28, height: 28)
+                .contentShape(.circle)
         }
+        .buttonStyle(.plain)
         .help("Recent activity")
-        .popover(isPresented: $showing, arrowEdge: .bottom) { ActivityList().frame(width: 380) }
+        .accessibilityLabel("Activity")
+        .popover(isPresented: $showing, arrowEdge: .trailing) { ActivityList().frame(width: 380) }
     }
 }
 

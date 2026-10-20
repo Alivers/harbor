@@ -27,7 +27,7 @@ extension Page {
 }
 
 extension Page {
-    /// The page's own create form, opened from its toolbar.
+    /// The page's own create form, opened from its header's primary button.
     var createAction: (title: String, route: SheetRoute)? {
         switch self {
         case .networks: ("Create Network", .createNetwork)
@@ -58,32 +58,30 @@ struct ResourceView: View {
     /// The store keeps the last read, so the page opens with it and refreshes in place instead of growing from a spinner.
     private var output: String? { store.listing(page.listing) }
     var body: some View {
-        ScrollView {
+        PageScaffold(title: page.title, subtitle: "container " + page.listing.joined(separator: " ")) {
+            GlassControls {
+                Button { Task { await load() } } label: { HeaderIcon(systemName: "arrow.clockwise") }
+                    .buttonStyle(.plain).help("Read the list again").accessibilityLabel("Reload")
+                if let group = page.group {
+                    HeaderMenu(systemName: "ellipsis", help: "All native \(group.lowercased()) commands") { NativeActionItems(group: group) }
+                }
+            }
+            if let create = page.createAction {
+                PrimaryActionButton(title: create.title) { store.present(create.route) }.disabled(!store.engine.isRunning)
+            }
+        } content: {
             VStack(alignment: .leading, spacing: 16) {
                 listing
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Actions").font(.headline)
+                    Text("Actions").font(.system(size: 13, weight: .semibold))
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 10)], spacing: 10) {
                         ForEach(NativeOperation.operations(in: page.group ?? "")) { OperationTile(operation: $0) }
                     }
+                    if let note = page.note { Text(note).font(.caption).foregroundStyle(Color.harborSub) }
                 }
-                if let note = page.note { Text(note).font(.caption).foregroundStyle(.secondary) }
+                .card()
             }
-            .padding(20)
-        }
-        .navigationTitle(page.title)
-        .navigationSubtitle("container " + page.listing.joined(separator: " "))
-        .toolbar {
-            if let create = page.createAction {
-                ToolbarItem(placement: .primaryAction) {
-                    Button { store.present(create.route) } label: { Label(create.title, systemImage: "plus") }
-                        .disabled(!store.engine.isRunning).help(create.title)
-                }
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Button { Task { await load() } } label: { Label("Reload", systemImage: "arrow.clockwise") }.help("Read the list again")
-            }
-            if let group = page.group { ToolbarItem(placement: .primaryAction) { NativeActionsMenu(group: group) } }
+            .paneScroll()
         }
         // Reload after any job finishes: it may have created or deleted what this page lists.
         .task(id: "\(store.changeCount) \(store.engine.isRunning)") { await load() }
@@ -92,10 +90,10 @@ struct ResourceView: View {
         VStack(alignment: .leading, spacing: 10) {
             if let failure {
                 Label(failure, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).textSelection(.enabled).lineLimit(6)
-                Text("A stopped engine, an older CLI or a missing plugin can cause this.").font(.caption).foregroundStyle(.secondary)
+                Text("A stopped engine, an older CLI or a missing plugin can cause this.").font(.caption).foregroundStyle(Color.harborSub)
             } else if let output {
                 if let table = TextTable.parse(output) {
-                    if table.rows.isEmpty { Text("Nothing here yet.").foregroundStyle(.secondary) }
+                    if table.rows.isEmpty { Text("Nothing here yet.").foregroundStyle(Color.harborSub) }
                     else { ResourceTable(table: table, actions: page.rowActions.compactMap(NativeOperation.named), usedBy: usedBy) }
                 } else {
                     ScrollView(.horizontal) {
@@ -137,19 +135,19 @@ private struct ResourceTable: View {
         Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 8) {
             GridRow {
                 ForEach(table.columns.indices, id: \.self) { i in
-                    Text(table.columns[i].capitalized).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text(table.columns[i].capitalized).font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.harborSub)
                 }
-                if usedBy != nil { Text("Used By").font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
+                if usedBy != nil { Text("Used By").font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.harborSub) }
             }
-            Divider()
+            PaneDivider().padding(.horizontal, -14)
             ForEach(table.rows.indices, id: \.self) { r in
                 GridRow {
                     ForEach(table.columns.indices, id: \.self) { i in
-                        Text(table.rows[r][i]).font(i == 0 ? Font.callout.weight(.medium) : Font.callout).lineLimit(1).textSelection(.enabled)
+                        Text(table.rows[r][i]).font(.system(size: 12, weight: i == 0 ? .semibold : .regular)).lineLimit(1).textSelection(.enabled)
                     }
                     if let usedBy {
                         let names = usedBy(table.rows[r].first ?? "")
-                        Text(names.isEmpty ? "—" : names.joined(separator: ", ")).font(.callout).foregroundStyle(names.isEmpty ? .tertiary : .secondary)
+                        Text(names.isEmpty ? "—" : names.joined(separator: ", ")).font(.system(size: 12)).foregroundStyle(Color.harborSub)
                             .lineLimit(1).help(names.joined(separator: ", "))
                     }
                     if !actions.isEmpty, let name = table.rows[r].first, !name.isEmpty {
@@ -157,8 +155,8 @@ private struct ResourceTable: View {
                             ForEach(actions) { op in
                                 Button(op.title) { store.present(.operation(NativeRequest(op, arguments: op.example(naming: name)))) }
                             }
-                        } label: { Image(systemName: "ellipsis.circle") }
-                        .menuStyle(.button).buttonStyle(.borderless).menuIndicator(.hidden).fixedSize()
+                        } label: { Image(systemName: "ellipsis.circle").foregroundStyle(Color.harborSub) }
+                        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
                         .help("Actions for \(name)")
                     }
                 }
@@ -169,6 +167,7 @@ private struct ResourceTable: View {
 
 struct OperationTile: View {
     @Environment(Store.self) private var store
+    @Environment(\.colorScheme) private var scheme
     let operation: NativeOperation
     @ViewState<Bool> private var hovering = false
     var body: some View {
@@ -176,15 +175,16 @@ struct OperationTile: View {
             HStack(spacing: 10) {
                 Image(systemName: operation.symbol).foregroundStyle(operation.destructive ? Color.red : Color.harbor).frame(width: 20)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(operation.title).font(.callout.weight(.medium))
-                    Text("container " + operation.id).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
+                    Text(operation.title).font(.system(size: 12, weight: .semibold))
+                    Text("container " + operation.id).font(.system(size: 11).monospaced()).foregroundStyle(Color.harborSub).lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                if operation.admin { Image(systemName: "lock").foregroundStyle(.secondary).help("Asks for an administrator password in Terminal") }
-                else if operation.terminal { Image(systemName: "arrow.up.forward.app").foregroundStyle(.secondary).help("Opens in Terminal") }
+                if operation.admin { Image(systemName: "lock").foregroundStyle(Color.harborSub).help("Asks for an administrator password in Terminal") }
+                else if operation.terminal { Image(systemName: "arrow.up.forward.app").foregroundStyle(Color.harborSub).help("Opens in Terminal") }
             }
             .padding(12)
-            .background(Color.primary.opacity(hovering ? 0.08 : 0.04), in: .rect(cornerRadius: 10))
+            .background(Color.white.opacity(scheme == .dark ? (hovering ? 0.1 : 0.05) : (hovering ? 0.6 : 0.35)), in: .rect(cornerRadius: 12, style: .continuous))
+            .overlay { RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.white.opacity(scheme == .dark ? 0.08 : 0.6)) }
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
@@ -193,17 +193,23 @@ struct OperationTile: View {
     }
 }
 
-/// Toolbar menu with every catalog command of a group.
-struct NativeActionsMenu: View {
+/// Every catalog command of a group, as menu items.
+struct NativeActionItems: View {
     @Environment(Store.self) private var store
     let group: String
     var body: some View {
-        Menu {
-            ForEach(NativeOperation.operations(in: group)) { op in
-                Button(op.title) { store.present(.operation(NativeRequest(op))) }
-            }
-        } label: { Label("Native Actions", systemImage: "ellipsis.circle") }
-        .help("All native \(group.lowercased()) commands")
+        ForEach(NativeOperation.operations(in: group)) { op in
+            Button(op.title) { store.present(.operation(NativeRequest(op))) }
+        }
+    }
+}
+
+/// A submenu with every catalog command of a group.
+struct NativeActionsMenu: View {
+    let group: String
+    var body: some View {
+        Menu { NativeActionItems(group: group) } label: { Label("Native Actions", systemImage: "terminal") }
+            .help("All native \(group.lowercased()) commands")
     }
 }
 
@@ -212,27 +218,35 @@ struct CatalogView: View {
     @ViewState<String> private var search = ""
     @ViewState<String> private var custom = ""
     var body: some View {
-        List {
-            Section {
-                HStack(spacing: 8) {
-                    Text("container").font(.body.monospaced()).foregroundStyle(.secondary)
-                    TextField("Arguments", text: $custom, prompt: Text("system status")).textFieldStyle(.plain).font(.body.monospaced()).onSubmit(openCustom)
-                    Button("Open", action: openCustom).disabled(custom.trimmingCharacters(in: .whitespaces).isEmpty)
+        PageScaffold(title: "All Commands", subtitle: "\(NativeOperation.all.count) native commands") {
+            GlassControls { GlassSearchField(text: $search, prompt: "Commands") }
+        } content: {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Custom Command").font(.system(size: 13, weight: .semibold))
+                    HStack(spacing: 8) {
+                        Text("container").font(.body.monospaced()).foregroundStyle(Color.harborSub)
+                        TextField("Arguments", text: $custom, prompt: Text("system status")).textFieldStyle(.plain).font(.body.monospaced()).onSubmit(openCustom)
+                        Button("Open", action: openCustom).buttonStyle(MiniButtonStyle()).disabled(custom.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                    .card(padding: 10)
+                    Text("Quotes group words; there are no pipes, redirects or expansion. Harbor shows the local help before anything runs.")
+                        .font(.caption).foregroundStyle(Color.harborSub)
                 }
-            } header: { Text("Custom Command") } footer: {
-                Text("Quotes group words; there are no pipes, redirects or expansion. Harbor shows the local help before anything runs.")
-            }
-            ForEach(NativeOperation.groups, id: \.self) { group in
-                let ops = NativeOperation.operations(in: group).filter { search.isEmpty || ($0.title + " " + $0.id + " " + group).localizedCaseInsensitiveContains(search) }
-                if !ops.isEmpty {
-                    Section(group) { ForEach(ops) { CatalogRow(operation: $0) } }
+                .card()
+                ForEach(NativeOperation.groups, id: \.self) { group in
+                    let ops = NativeOperation.operations(in: group).filter { search.isEmpty || ($0.title + " " + $0.id + " " + group).localizedCaseInsensitiveContains(search) }
+                    if !ops.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(group).font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.harborSub).padding(.horizontal, 10).padding(.bottom, 2)
+                            ForEach(ops) { CatalogRow(operation: $0) }
+                        }
+                        .card(padding: 8)
+                    }
                 }
             }
+            .paneScroll()
         }
-        .glassList()
-        .searchable(text: $search, placement: .toolbar, prompt: "Commands")
-        .navigationTitle("All Commands")
-        .navigationSubtitle("\(NativeOperation.all.count) native commands")
     }
     private func openCustom() {
         let text = custom.trimmingCharacters(in: .whitespaces)
@@ -244,19 +258,23 @@ struct CatalogView: View {
 private struct CatalogRow: View {
     @Environment(Store.self) private var store
     let operation: NativeOperation
+    @ViewState<Bool> private var hovering = false
     var body: some View {
         Button { store.present(.operation(NativeRequest(operation))) } label: {
             HStack(spacing: 10) {
                 Image(systemName: operation.symbol).foregroundStyle(operation.destructive ? Color.red : Color.harbor).frame(width: 20)
-                Text(operation.title)
+                Text(operation.title).font(.system(size: 13, weight: .medium))
                 Spacer()
-                Text("container " + operation.id).font(.callout.monospaced()).foregroundStyle(.secondary)
-                if operation.admin { Image(systemName: "lock").foregroundStyle(.secondary) }
-                else if operation.terminal { Image(systemName: "arrow.up.forward.app").foregroundStyle(.secondary) }
+                Text("container " + operation.id).font(.system(size: 11).monospaced()).foregroundStyle(Color.harborSub)
+                if operation.admin { Image(systemName: "lock").foregroundStyle(Color.harborSub) }
+                else if operation.terminal { Image(systemName: "arrow.up.forward.app").foregroundStyle(Color.harborSub) }
             }
+            .padding(.horizontal, 10).frame(height: 32)
+            .background(hovering ? Color.harbor.opacity(0.1) : .clear, in: .rect(cornerRadius: 9, style: .continuous))
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .onHover { hovering = $0 }
     }
 }
 

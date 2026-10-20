@@ -67,6 +67,13 @@ The look was chosen from a canvas of browser mockups that compared four glass ma
 - **Contrast was checked by calculation, not on screen.** Measured against the panel tint over a light backdrop, violet text is 4.8:1 and mint text 4.9:1; against the dark tint, 7.2:1 and 10.7:1. Now that the window is see-through, the real backdrop depends on the desktop. A busy or dark wallpaper behind a light-mode window can lower contrast; the Background slider and Reduce Transparency are the remedies. White button text on the violet fill measures 5.4:1 in light mode and 5:1 in dark mode, and violet icons keep 3:1 on the dark backdrop.
 - The app icon was regenerated in the new colors and checked at 16, 32 and 1024 px.
 
+## Update: the design's floating shell
+
+Screenshots showed the app still far from the chosen design: system split view, the sidebar collapsing while the inspector opened, a gray selection, and glass that barely showed. The shell was rebuilt from the design's source values.
+
+- **What changed:** no title bar, with the system's own window buttons moved into the sidebar pane; floating panes for sidebar, page and inspector; a custom list with violet selection; the design's wallpaper drawn in the window; crystal panes that mirror a pre-blurred copy of it (blur 14, saturate 1.8) under the design's tint, glow, sheen and edges; Core Animation pane shadows.
+- **Built by CI only.** None of it has been looked at on a Mac yet. Still to check there: the traffic lights' hover symbols and states, window dragging from gaps and titles, the inspector slide, keyboard selection in lists, the mirror lining up with the wallpaper while resizing and scrolling, dark mode, the clear-glass setting, the wallpaper slider and Reduce Transparency.
+
 ## Not yet verified
 
 Apple Container / Socktainer are not formally installed on the test machine, so none of the following count as completed end-to-end tests:

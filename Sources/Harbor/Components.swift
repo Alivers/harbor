@@ -45,32 +45,32 @@ struct LogTextView: NSViewRepresentable {
         .font: NSFont.monospacedSystemFont(ofSize: 11.5, weight: .regular), .foregroundColor: NSColor.labelColor]
 }
 
-/// A log or report panel: text on the system text background, with a placeholder while empty.
+/// A log or report panel: text in a lighter well, with a placeholder while empty.
 struct OutputPanel: View {
     var text: String
     var source: AnyHashable
     var followsEnd = true
     var placeholder = "No output."
+    @Environment(\.colorScheme) private var scheme
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
         LogTextView(text: text, source: source, followsEnd: followsEnd)
-            .overlay { if text.isEmpty { Text(placeholder).foregroundStyle(.secondary) } }
-            .background(Color(nsColor: .textBackgroundColor), in: .rect(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.08)))
+            .overlay { if text.isEmpty { Text(placeholder).foregroundStyle(Color.harborSub) } }
+            .background(scheme == .dark ? Color.black.opacity(0.22) : Color.white.opacity(0.55), in: shape)
+            .overlay { shape.strokeBorder(Color.white.opacity(scheme == .dark ? 0.1 : 0.7)).allowsHitTesting(false) }
     }
 }
 
+/// Running or stopped, as the design's small pill: deep violet on a violet wash, or muted.
 struct StateBadge: View {
     let state: String
     let running: Bool
-    /// `.increased` on a selected list row, where the system's highlight would swallow the theme colors.
-    @Environment(\.backgroundProminence) private var prominence
     var body: some View {
-        let selected = prominence == .increased
         Text(state.capitalized)
-            .font(.caption.weight(.medium))
-            .foregroundStyle(selected ? Color.white : running ? Color.harborLive : .secondary)
-            .padding(.horizontal, 8).padding(.vertical, 3)
-            .background(selected ? Color.white.opacity(0.22) : (running ? Color.harborLive : Color.secondary).opacity(0.14), in: .capsule)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(running ? Color.harborLive : Color.harborSub)
+            .padding(.horizontal, 9).padding(.vertical, 3)
+            .background((running ? Color.harbor.opacity(0.16) : Color.harborSub.opacity(0.14)), in: .capsule)
             .contentTransition(.interpolate)
     }
 }
@@ -79,36 +79,34 @@ struct StateBadge: View {
 struct PortLinks: View {
     let mappings: [PortMapping]
     var limit = 2
-    @Environment(\.backgroundProminence) private var prominence
+    var running = true
     var body: some View {
         ForEach(mappings.prefix(limit), id: \.self) { port in
             if let url = port.url {
                 Link(destination: url) {
-                    Label(port.label, systemImage: "arrow.up.forward.square").labelStyle(.titleAndIcon)
-                        .foregroundStyle(prominence == .increased ? Color.white : Color.harborText)
+                    Label(port.label, systemImage: "arrow.up.forward").labelStyle(.titleAndIcon)
+                        .foregroundStyle(running ? Color.harborLive : Color.harborSub)
                 }
-                    .font(.caption.monospacedDigit())
-                    .help("Open \(url.absoluteString)")
+                .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                .help("Open \(url.absoluteString)")
             } else {
-                Text(port.label).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                Text(port.label).font(.system(size: 11, weight: .semibold).monospacedDigit()).foregroundStyle(Color.harborSub)
             }
         }
-        if mappings.count > limit { Text("+\(mappings.count - limit)").font(.caption).foregroundStyle(.secondary) }
+        if mappings.count > limit { Text("+\(mappings.count - limit)").font(.system(size: 11)).foregroundStyle(Color.harborSub) }
     }
 }
 
-/// An icon tile for list rows.
+/// The design's icon tile for list rows: violet on a violet wash when active, muted otherwise.
 struct RowIcon: View {
     let systemName: String
     var active = true
-    @Environment(\.backgroundProminence) private var prominence
     var body: some View {
-        let selected = prominence == .increased
         Image(systemName: systemName)
-            .font(.system(size: 15, weight: .medium))
-            .foregroundStyle(selected ? Color.white : active ? Color.harbor : .secondary)
-            .frame(width: 32, height: 32)
-            .background(selected ? Color.white.opacity(0.2) : (active ? Color.harbor : Color.secondary).opacity(0.12), in: .rect(cornerRadius: 8))
+            .font(.system(size: 16, weight: .medium))
+            .foregroundStyle(active ? Color.harbor : Color.harborSub)
+            .frame(width: 34, height: 34)
+            .background((active ? Color.harbor.opacity(0.16) : Color.harborSub.opacity(0.14)), in: .rect(cornerRadius: 10, style: .continuous))
     }
 }
 

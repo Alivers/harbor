@@ -7,18 +7,21 @@ typealias ViewState<Value> = SwiftUI.State<Value>
 
 @main struct HarborApp: App {
     @ViewState<Store> private var store = Store()
+    @ViewState<BackdropCache> private var backdrop = BackdropCache()
     @AppStorage(Preference.menuBarExtra) private var showMenuBarExtra = true
     var body: some Scene {
         // One window: the store's sheet and activity state belong to a single place.
         Window("Harbor", id: "main") {
             RootView()
                 .environment(store)
-                .frame(minWidth: 880, minHeight: 560)
+                .environment(backdrop)
+                .frame(minWidth: 1000, minHeight: 600)
                 .tint(.harbor)
-                // The window shows the desktop through an aurora tint; the toolbar keeps no background of its own.
+                // RootView draws the wallpaper; behind it the window shows the blurred desktop when the wallpaper is thinned out.
                 .containerBackground(for: .window) { WindowBackdrop() }
-                .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         }
+        // No title bar: the panes float right up to the top, and the window's buttons sit in the sidebar pane.
+        .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1180, height: 760)
         .commands { HarborCommands(store: store) }
         Settings { SettingsView().environment(store).tint(.harbor) }
@@ -45,6 +48,15 @@ struct HarborCommands: Commands {
         CommandGroup(after: .toolbar) {
             Button("Refresh") { Task { await store.refresh() } }.keyboardShortcut("r")
             Divider()
+        }
+        CommandMenu("Go") {
+            ForEach(Array(SidebarSection.all.flatMap(\.pages).enumerated()), id: \.element) { index, page in
+                if index < 9 {
+                    Button(page.title) { store.requestedPage = page }.keyboardShortcut(KeyEquivalent(Character(String(index + 1))))
+                } else {
+                    Button(page.title) { store.requestedPage = page }
+                }
+            }
         }
     }
 }

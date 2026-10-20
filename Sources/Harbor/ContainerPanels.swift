@@ -27,7 +27,7 @@ struct ContainerStatsView: View {
             } else if latest == nil {
                 ProgressView("Sampling…").frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView { content.padding(12) }
+                ScrollView { content }
             }
         }
         .task(id: container.id + (container.running ? " running" : "")) { await sample() }
@@ -129,7 +129,7 @@ struct ContainerFilesView: View {
     @ViewState<[ContainerFiles.Entry]> private var entries: [ContainerFiles.Entry] = []
     @ViewState<String?> private var failure: String?
     @ViewState<Bool> private var loading = false
-    @ViewState<String?> private var selection: String?
+    @ViewState<Set<String>> private var selection: Set<String> = []
     @ViewState<Bool> private var dropTargeted = false
     var body: some View {
         if !container.running {
@@ -155,22 +155,18 @@ struct ContainerFilesView: View {
                     } else if loading && entries.isEmpty {
                         ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
-                        List(entries, selection: $selection) { entry in
+                        SelectableRows(items: entries, selection: $selection, rowHeight: 28, onOpen: open, onDelete: nil) { entry in
                             Label(entry.name, systemImage: entry.isDirectory ? "folder.fill" : "doc")
-                                .foregroundStyle(.primary)
+                                .font(.system(size: 12))
                                 .lineLimit(1)
-                        }
-                        .contextMenu(forSelectionType: String.self) { names in
-                            if let name = names.first, let entry = entries.first(where: { $0.name == name }) {
-                                if entry.isDirectory { Button("Open") { go(ContainerFiles.join(path, name)) } }
-                                Button("Download…") { store.download(ContainerFiles.join(path, name), from: container) }
-                                Button("Copy Path") { store.copy(ContainerFiles.join(path, name)) }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        } menu: { chosen in
+                            if let entry = chosen.first {
+                                if entry.isDirectory { Button("Open") { go(ContainerFiles.join(path, entry.name)) } }
+                                Button("Download…") { store.download(ContainerFiles.join(path, entry.name), from: container) }
+                                Button("Copy Path") { store.copy(ContainerFiles.join(path, entry.name)) }
                             }
-                        } primaryAction: { names in
-                            guard let name = names.first, let entry = entries.first(where: { $0.name == name }) else { return }
-                            if entry.isDirectory { go(ContainerFiles.join(path, name)) } else { store.download(ContainerFiles.join(path, name), from: container) }
                         }
-                        .scrollContentBackground(.hidden)
                         .glassPanel(radius: 12)
                         .overlay { if entries.isEmpty && !loading { Text("Empty folder").foregroundStyle(.secondary) } }
                         .overlay { if dropTargeted { RoundedRectangle(cornerRadius: 8).strokeBorder(Color.harbor, lineWidth: 2) } }
@@ -180,15 +176,18 @@ struct ContainerFilesView: View {
                     }
                 }
                 Text("Double-click a folder to open it, or a file to download it. Drop files here to upload them.")
-                    .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+                    .font(.caption).foregroundStyle(Color.harborSub).frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding([.horizontal, .bottom], 12)
             .task(id: "\(container.id) \(path) \(store.changeCount)") { await load() }
         }
     }
     private func go(_ target: String) {
         guard let normalized = ContainerFiles.normalize(target) else { typedPath = path; return }
-        selection = nil; path = normalized; typedPath = normalized
+        selection = []; path = normalized; typedPath = normalized
+    }
+    /// A folder opens; a file downloads.
+    private func open(_ entry: ContainerFiles.Entry) {
+        if entry.isDirectory { go(ContainerFiles.join(path, entry.name)) } else { store.download(ContainerFiles.join(path, entry.name), from: container) }
     }
     private func load() async {
         loading = true; defer { loading = false }

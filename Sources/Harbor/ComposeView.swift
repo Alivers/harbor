@@ -4,7 +4,9 @@ import HarborCore
 struct ComposeView: View {
     @Environment(Store.self) private var store
     var body: some View {
-        ScrollView {
+        PageScaffold(title: "Compose", subtitle: "Optional · via Socktainer") {
+            PrimaryActionButton(title: "Import Compose Project (⌘O)") { store.importProject() }
+        } content: {
             VStack(alignment: .leading, spacing: 16) {
                 CompatibilityCard()
                 if store.projects.isEmpty {
@@ -15,19 +17,12 @@ struct ComposeView: View {
                     } actions: {
                         Button("Import Compose Project…") { store.importProject() }.buttonStyle(.borderedProminent)
                     }
-                    .padding(.top, 24)
+                    .card(padding: 24)
                 }
                 ForEach(store.projects) { ProjectCard(project: $0) }
             }
-            .padding(20)
             .animation(.smooth, value: store.projects)
-        }
-        .navigationTitle("Compose")
-        .navigationSubtitle("Optional · via Socktainer")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button { store.importProject() } label: { Label("Import Project", systemImage: "plus") }.help("Import a Compose project (⌘O)")
-            }
+            .paneScroll()
         }
         .task { await store.refreshCompatibility() }
     }
@@ -39,10 +34,11 @@ private struct CompatibilityCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
-                Circle().fill(store.dockerConnected ? Color.harborLive : .orange).frame(width: 9, height: 9)
+                Circle().fill(store.dockerConnected ? Color.harbor : .orange).frame(width: 9, height: 9)
+                    .shadow(color: Color.harbor.opacity(store.dockerConnected ? 0.8 : 0), radius: 4)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(store.dockerConnected ? "Docker API ready" : "Compatibility service not running").font(.headline)
-                    Text("Only Compose needs this. Native containers, images and builds never do.").font(.callout).foregroundStyle(.secondary)
+                    Text(store.dockerConnected ? "Docker API ready" : "Compatibility service not running").font(.system(size: 13, weight: .semibold))
+                    Text("Only Compose needs this. Native containers, images and builds never do.").font(.system(size: 11)).foregroundStyle(Color.harborSub)
                 }
                 Spacer()
                 if store.isBusy("bridge") { ProgressView().controlSize(.small) }
@@ -101,10 +97,10 @@ private struct ProjectCard: View {
         let busy = store.isBusy(project.id.uuidString)
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
-                RowIcon(systemName: "square.stack.3d.up.fill").symbolEffect(.pulse, isActive: busy)
+                RowIcon(systemName: "square.stack.3d.up").symbolEffect(.pulse, isActive: busy)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(project.name).font(.headline)
-                    Text(project.directory).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    Text(project.name).font(.system(size: 13, weight: .semibold))
+                    Text(project.directory).font(.system(size: 11)).foregroundStyle(Color.harborSub).lineLimit(1).truncationMode(.middle)
                 }
                 Spacer()
                 if busy { ProgressView().controlSize(.small) }
@@ -175,11 +171,11 @@ private struct ProjectCard: View {
                 VStack(spacing: 6) {
                     ForEach(rows) { c in
                         HStack(spacing: 8) {
-                            Circle().fill(c.running ? Color.harborLive : .secondary).frame(width: 7, height: 7)
+                            Circle().fill(c.running ? Color.harbor : Color.harborSub.opacity(0.5)).frame(width: 7, height: 7)
                             Text(c.service.isEmpty ? c.name : c.service).font(.callout.monospaced()).lineLimit(1).help(c.name)
                             Text(c.status).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                             Spacer()
-                            PortLinks(mappings: c.portMappings)
+                            PortLinks(mappings: c.portMappings, running: c.running)
                             if !c.service.isEmpty { serviceMenu(c, busy: busy) }
                         }
                     }

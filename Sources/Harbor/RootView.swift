@@ -36,22 +36,33 @@ struct SidebarSection: Identifiable {
         SidebarSection(title: "System", pages: [.engine, .registries, .commands])]
 }
 
+/// The window as the design draws it: no title bar, and panes of glass floating over the wallpaper with gaps
+/// between them. The sidebar is a pane of its own, with the window's buttons inside it.
 struct RootView: View {
     @Environment(Store.self) private var store
+    @Environment(BackdropCache.self) private var backdrop
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @AppStorage(Preference.backdropTint) private var tint = Preference.defaultBackdropTint
     @SceneStorage("page") private var page: Page = .containers
-    /// Held explicitly so the sidebar stays put while the inspector opens; only the sidebar button hides it.
-    @ViewState<NavigationSplitViewVisibility> private var columns: NavigationSplitViewVisibility = .all
     var body: some View {
         @Bindable var store = store
-        NavigationSplitView(columnVisibility: $columns) {
-            Sidebar(selection: $page)
-                .navigationSplitViewColumnWidth(min: 190, ideal: 215, max: 280)
-        } detail: {
-            detail
-                .toolbar { ToolbarItem(placement: .automatic) { ActivityButton() } }
-                // Floating controls belong to the glass layer above the content.
-                .overlay(alignment: .bottom) { ActivityCapsule().padding(.bottom, 18) }
+        HStack(spacing: 14) {
+            SidebarPane(selection: $page).frame(width: 208)
+            detail.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .padding(10)
+        .foregroundStyle(Color.harborInk)
+        // The gaps between the panes move the window.
+        .background { WindowDragArea() }
+        .background(alignment: .topLeading) {
+            Wallpaper(dark: scheme == .dark).opacity(reduceTransparency ? 1 : tint)
+        }
+        .clipped()
+        .coordinateSpace(.named(Backdrop.space))
+        .ignoresSafeArea()
+        .onAppear { backdrop.prepare(dark: scheme == .dark) }
+        .onChange(of: scheme) { _, scheme in backdrop.prepare(dark: scheme == .dark) }
         .sheet(item: $store.sheet) { route in SheetView(route: route) }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await store.refresh() }
@@ -91,20 +102,37 @@ private struct SheetView: View {
     }
 }
 
-private struct Sidebar: View {
+/// The sidebar pane of the design: the window's buttons, sections of pages with a violet selection, and the engine.
+private struct SidebarPane: View {
     @Environment(Store.self) private var store
     @Binding var selection: Page
     var body: some View {
-        List(selection: Binding(get: { Optional(selection) }, set: { if let page = $0 { selection = page } })) {
-            ForEach(SidebarSection.all) { section in
-                Section(section.title) {
-                    ForEach(section.pages) { page in
-                        Label(page.title, systemImage: page.icon).badge(badge(for: page)).tag(page)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                WindowControls().frame(width: 54, height: 16).padding(.leading, 6)
+                Spacer()
+            }
+            .frame(height: 16)
+            .background { WindowDragArea() }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    ForEach(SidebarSection.all) { section in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(section.title).font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.harborSub)
+                                .padding(.horizontal, 9).padding(.bottom, 4)
+                            ForEach(section.pages) { page in
+                                SidebarRow(page: page, selected: selection == page, badge: badge(for: page)) { selection = page }
+                            }
+                        }
                     }
                 }
             }
+            .scrollIndicators(.never)
+            EngineFooter(selection: $selection)
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) { EngineFooter(selection: $selection) }
+        .padding(EdgeInsets(top: 16, leading: 10, bottom: 12, trailing: 10))
+        .frame(maxHeight: .infinity, alignment: .top)
+        .glassPanel()
     }
     private func badge(for page: Page) -> Int {
         switch page {
@@ -115,32 +143,71 @@ private struct Sidebar: View {
     }
 }
 
-/// Engine state at the foot of the sidebar; a click opens the Engine page.
+private struct SidebarRow: View {
+    let page: Page
+    let selected: Bool
+    let badge: Int
+    let action: () -> Void
+    @Environment(\.colorScheme) private var scheme
+    @ViewState<Bool> private var hovering = false
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 9) {
+                Image(systemName: page.icon)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(selected ? Color.harbor : Color.harborSub)
+                    .frame(width: 18)
+                Text(page.title).font(.system(size: 13, weight: selected ? .semibold : .medium)).lineLimit(1)
+                Spacer(minLength: 4)
+                if badge > 0 {
+                    Text("\(badge)").font(.system(size: 11, weight: .semibold)).monospacedDigit().foregroundStyle(Color.harborSub)
+                        .contentTransition(.numericText())
+                }
+            }
+            .padding(.horizontal, 9)
+            .frame(height: 30)
+            .background(fill, in: .rect(cornerRadius: 9, style: .continuous))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .animation(.easeOut(duration: 0.12), value: hovering)
+    }
+    private var fill: Color {
+        if selected { return Color.harbor.opacity(scheme == .dark ? 0.22 : 0.2) }
+        return hovering ? Color.harbor.opacity(0.07) : .clear
+    }
+}
+
+/// Engine state at the foot of the sidebar (a click opens the Engine page), next to the recent activity.
 private struct EngineFooter: View {
     @Environment(Store.self) private var store
     @Binding var selection: Page
     var body: some View {
-        Button { selection = .engine } label: {
-            HStack(spacing: 10) {
-                Circle().fill(color).frame(width: 8, height: 8)
-                    .shadow(color: color.opacity(0.6), radius: store.engine.isRunning ? 3 : 0)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.callout.weight(.medium)).contentTransition(.opacity)
-                    Text("Apple Container").font(.caption2).foregroundStyle(.secondary)
+        HStack(spacing: 4) {
+            Button { selection = .engine } label: {
+                HStack(spacing: 10) {
+                    Circle().fill(color).frame(width: 9, height: 9)
+                        .shadow(color: color.opacity(store.engine.isRunning ? 0.8 : 0), radius: 4)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(title).font(.system(size: 12, weight: .semibold)).contentTransition(.opacity)
+                        Text("Apple Container").font(.system(size: 11)).foregroundStyle(Color.harborSub)
+                    }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
+                .padding(8)
+                .contentShape(.rect)
             }
-            .padding(.horizontal, 12).padding(.vertical, 10)
-            .contentShape(.rect)
+            .buttonStyle(.plain)
+            ActivityButton()
         }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 8).padding(.bottom, 8)
         .animation(.smooth, value: store.engine)
     }
     private var title: String { switch store.engine {
     case .checking: "Connecting…"; case .missingCLI: "Not installed"; case .stopped: "Engine stopped"; case .running: "Engine running"
     } }
     private var color: Color { switch store.engine {
-    case .running: .harborLive; case .checking: .secondary; case .missingCLI, .stopped: .orange
+    case .running: .harbor; case .checking: .secondary; case .missingCLI, .stopped: .orange
     } }
 }

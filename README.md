@@ -6,14 +6,14 @@ This is the **0.4 preview** and requires **macOS 27** on Apple silicon. The app 
 
 ## Using Harbor
 
-- **Native macOS 27 layout.** A sidebar groups Workloads, Resources, Environments and System. Actions live in the toolbar, search sits in the toolbar's search field, and details open in an inspector.
-- **Aurora Ice, in hybrid glass.** The window is see-through. Your desktop shows through it, blurred, under an aurora tint: ice, lilac and mint by day, deep indigo by night. Violet marks selection and actions, and mint marks anything running.
-  - Lists and cards are Liquid Glass panels with a bright edge and a sheen, sized to their content. Behind them, faint container stacks and waves give the glass something to blur and bend.
-  - Floating controls such as the activity capsule use the system's clear Liquid Glass.
-  - Settings › Appearance switches panels to clear glass too, and a slider sets how much of the desktop shows through. With Reduce Transparency on, the window and panels are solid.
-- **Nothing blocks.** Starting, stopping, pulling or composing runs in the background, and several jobs can run at once; only the resource a job changes is locked. The capsule at the bottom of the window shows what is running, then how it ended. A failure stays until you dismiss it or open its output. The clock button in the toolbar lists recent jobs with their full output.
+- **Floating glass panes.** No title bar: the sidebar, the page and its details are separate panes of glass floating over a harbor wallpaper, with the window's buttons inside the sidebar. A sidebar groups Workloads, Resources, Environments and System (⌘1–⌘9 jump between pages). Each page has its title, search and actions at the top and opens details in a pane beside it.
+- **Aurora Ice, in hybrid glass.** Ice, lilac and mint by day, deep indigo by night, with violet for selection and actions.
+  - Panes are crystal glass: the wallpaper behind them blurred and saturated, under a lilac-white tint with a bright top edge, an inner glow and a sheen.
+  - Floating controls, such as the header buttons and the activity capsule, use the system's clear Liquid Glass.
+  - Settings › Appearance switches panes to clear glass too, and a slider fades the wallpaper towards your own desktop, blurred. With Reduce Transparency on, the panes are solid.
+- **Nothing blocks.** Starting, stopping, pulling or composing runs in the background, and several jobs can run at once; only the resource a job changes is locked. The capsule at the bottom of the window shows what is running, then how it ended. A failure stays until you dismiss it or open its output. The clock button at the foot of the sidebar lists recent jobs with their full output.
 - **Output where it matters.** Logs, inspect output, reports and raw catalog commands open their output right away. Lifecycle actions don't open anything unless they fail.
-- **Containers.** Filter by running or stopped and sort by name, image, state or age. Click a published port to open it in the browser. Rows show actions on hover, and right-click gives you the rest; select several rows to start, stop, restart or delete them together. Double-click a row, or use the inspector button, for:
+- **Containers.** Filter by running or stopped and sort by name, image, state or age. Click a published port to open it in the browser. Rows show actions on hover, and right-click gives you the rest; select several rows to start, stop, restart or delete them together. Double-click a row, or use the details button (⌥⌘I), for:
   - **Overview**: command, working directory, user, networks with their addresses, mounts, environment (values hidden until you show them) and labels.
   - **Logs**: recent output, followed live when the CLI supports `--follow`.
   - **Stats**: live CPU, memory and network charts.

@@ -6,21 +6,20 @@ struct EngineSetupView: View {
     @Environment(Store.self) private var store
     var body: some View {
         if store.engine == .checking {
-            ProgressView("Connecting to Apple Container…").frame(maxWidth: .infinity, maxHeight: .infinity)
+            ProgressView("Connecting to Apple Container…").huggingGlassPanel(height: 200)
         } else {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Set Up Apple Container").font(.title.weight(.semibold))
-                        Text("Harbor drives Apple's official container runtime. Install it and start the engine; Harbor connects on its own.")
-                            .foregroundStyle(.secondary)
-                    }
-                    SetupGuide()
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Set Up Apple Container").font(.system(size: 20, weight: .bold))
+                    Text("Harbor drives Apple's official container runtime. Install it and start the engine; Harbor connects on its own.")
+                        .foregroundStyle(Color.harborSub)
                 }
-                .frame(maxWidth: 640, alignment: .leading)
-                .padding(32)
-                .frame(maxWidth: .infinity)
+                SetupGuide()
             }
+            .card(padding: 28)
+            .frame(maxWidth: 680)
+            .frame(maxWidth: .infinity)
+            .paneScroll()
         }
     }
 }
@@ -173,46 +172,44 @@ struct EngineView: View {
     @ViewState<Bool> private var confirmStop = false
     var body: some View {
         let busy = store.isBusy("engine")
-        ScrollView {
+        PageScaffold(title: "Engine", subtitle: "Apple Container") {
+            GlassControls {
+                SettingsLink { HeaderIcon(systemName: "slider.horizontal.3") }
+                    .buttonStyle(.plain).help("Tool paths and appearance").accessibilityLabel("Settings")
+            }
+        } content: {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 16) {
-                    Image(systemName: "cpu").font(.system(size: 34, weight: .light)).foregroundStyle(store.engine.isRunning ? Color.harborLive : .secondary)
-                        .symbolEffect(.pulse, isActive: busy)
+                    RowIcon(systemName: "cpu", active: store.engine.isRunning).symbolEffect(.pulse, isActive: busy)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(headline).font(.title2.weight(.semibold)).contentTransition(.opacity)
-                        Text(store.config.container).font(.callout.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                        Text(headline).font(.system(size: 15, weight: .bold)).contentTransition(.opacity)
+                        Text(store.config.container).font(.system(size: 11).monospaced()).foregroundStyle(Color.harborSub).textSelection(.enabled)
                     }
                     Spacer()
                     if store.engine.isRunning {
-                        Button("Stop Engine…") { confirmStop = true }.disabled(busy)
+                        Button("Stop Engine…") { confirmStop = true }.buttonStyle(MiniButtonStyle()).disabled(busy)
                     } else if case .stopped = store.engine {
                         Button(busy ? "Starting…" : "Start Engine") { store.startEngine() }.buttonStyle(.borderedProminent).disabled(busy)
                     }
                 }
                 .card()
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Setup").font(.headline)
+                    Text("Setup").font(.system(size: 13, weight: .semibold))
                     SetupGuide()
                 }
                 .card()
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("System").font(.headline)
+                    Text("System").font(.system(size: 13, weight: .semibold))
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], spacing: 10) {
                         ForEach(NativeOperation.operations(in: "System")) { OperationTile(operation: $0) }
                     }
+                    Text("Quitting Harbor leaves the engine and your containers running. Features follow the local CLI's help, so newer versions add actions without a Harbor update.")
+                        .font(.caption).foregroundStyle(Color.harborSub)
                 }
                 .card()
-                Text("Quitting Harbor leaves the engine and your containers running. Features follow the local CLI's help, so newer versions add actions without a Harbor update.")
-                    .font(.caption).foregroundStyle(.secondary)
             }
-            .padding(20)
             .animation(.smooth, value: store.engine)
-        }
-        .navigationTitle("Engine")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                SettingsLink { Label("Paths", systemImage: "slider.horizontal.3") }.help("Tool paths")
-            }
+            .paneScroll()
         }
         .confirmationDialog("Stop Apple Container?", isPresented: $confirmStop, titleVisibility: .visible) {
             Button("Stop Engine", role: .destructive) { store.stopEngine() }
@@ -240,9 +237,9 @@ struct SettingsView: View {
                     ForEach(GlassStyle.allCases) { Text($0.rawValue).tag($0.rawValue) }
                 }
                 .pickerStyle(.segmented)
-                Slider(value: $backdropTint, in: 0...0.9) { Text("Background") } minimumValueLabel: { Text("See-through") } maximumValueLabel: { Text("Aurora") }
+                Slider(value: $backdropTint, in: 0...1) { Text("Background") } minimumValueLabel: { Text("Desktop") } maximumValueLabel: { Text("Harbor") }
             } header: { Text("Appearance") } footer: {
-                Text("Crystal panels are lightly frosted with a bright edge. Clear panels use the system's clear Liquid Glass and show more of what is behind them. Background sets how much of the blurred desktop shows through the aurora. Floating controls are always clear, and with Reduce Transparency on, the window and panels are solid.")
+                Text("Crystal panes frost the wallpaper behind them under a bright edge and a sheen. Clear panes use the system's clear Liquid Glass and keep it sharp. Background fades the harbor wallpaper out towards your own desktop, blurred. Floating controls are always clear Liquid Glass, and with Reduce Transparency on, the panes are solid.")
             }
             Section {
                 Toggle("Show Harbor in the menu bar", isOn: $showMenuBarExtra)
