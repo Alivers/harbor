@@ -170,6 +170,8 @@ struct ContainerFilesView: View {
                             guard let name = names.first, let entry = entries.first(where: { $0.name == name }) else { return }
                             if entry.isDirectory { go(ContainerFiles.join(path, name)) } else { store.download(ContainerFiles.join(path, name), from: container) }
                         }
+                        .scrollContentBackground(.hidden)
+                        .glassPanel(radius: 12)
                         .overlay { if entries.isEmpty && !loading { Text("Empty folder").foregroundStyle(.secondary) } }
                         .overlay { if dropTargeted { RoundedRectangle(cornerRadius: 8).strokeBorder(Color.harbor, lineWidth: 2) } }
                         .dropDestination(for: URL.self) { urls, _ in

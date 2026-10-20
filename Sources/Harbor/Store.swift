@@ -40,6 +40,8 @@ enum SheetRoute: Identifiable {
 enum Preference {
     static let menuBarExtra = "showMenuBarExtra"
     static let notifications = "notifyWhenInactive"
+    /// A `GlassStyle` raw value.
+    static let glassStyle = "glassStyle"
     static func enabled(_ key: String) -> Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
 }
 

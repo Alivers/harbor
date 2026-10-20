@@ -227,6 +227,7 @@ struct CatalogView: View {
                 }
             }
         }
+        .glassList()
         .searchable(text: $search, placement: .toolbar, prompt: "Commands")
         .navigationTitle("All Commands")
         .navigationSubtitle("\(NativeOperation.all.count) native commands")
@@ -317,7 +318,7 @@ struct NativeOperationSheet: View {
         case .loading:
             ProgressView().controlSize(.small)
         case .verified:
-            Label("Help verified", systemImage: "checkmark.seal.fill").foregroundStyle(Color.harbor).font(.callout)
+            Label("Help verified", systemImage: "checkmark.seal.fill").foregroundStyle(Color.harborLive).font(.callout)
         case .unavailable:
             HStack(spacing: 8) {
                 Label("Not available in this CLI", systemImage: "xmark.seal").foregroundStyle(.orange).font(.callout)

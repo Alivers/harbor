@@ -23,7 +23,7 @@ struct ActivityCapsule: View {
                     .contentShape(.capsule)
                 }
                 .buttonStyle(.plain)
-                .glassEffect(.regular.interactive(), in: .capsule)
+                .glassEffect(.clear.interactive(), in: .capsule)
                 .glassEffectID("activity", in: glass)
                 .help("Show activity")
             } else if let job = store.banner {
@@ -41,7 +41,7 @@ struct ActivityCapsule: View {
                         .buttonStyle(.plain).foregroundStyle(.secondary).help("Dismiss")
                 }
                 .padding(.horizontal, 16).padding(.vertical, 9)
-                .glassEffect(job.status == .failed ? .regular.tint(.red.opacity(0.25)).interactive() : .regular.interactive(), in: .capsule)
+                .glassEffect(job.status == .failed ? .clear.tint(.red.opacity(0.3)).interactive() : .clear.interactive(), in: .capsule)
                 .glassEffectID("activity", in: glass)
             }
         }
@@ -118,7 +118,7 @@ struct JobStatusIcon: View {
     var body: some View {
         switch status {
         case .running: ProgressView().controlSize(.small)
-        case .succeeded: Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.harbor)
+        case .succeeded: Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.harborLive)
         case .failed: Image(systemName: "xmark.octagon.fill").foregroundStyle(.red)
         case .canceled: Image(systemName: "stop.circle").foregroundStyle(.secondary)
         }

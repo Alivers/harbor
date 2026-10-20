@@ -46,6 +46,8 @@ struct RootView: View {
                 .navigationSplitViewColumnWidth(min: 190, ideal: 215, max: 280)
         } detail: {
             detail
+                // Every page sits on the aurora; it extends under the sidebar so the sidebar's glass has something to show.
+                .background { AuroraBackdrop().backgroundExtensionEffect() }
                 .toolbar { ToolbarItem(placement: .automatic) { ActivityButton() } }
                 // Floating controls belong to the glass layer above the content.
                 .overlay(alignment: .bottom) { ActivityCapsule().padding(.bottom, 18) }
@@ -139,6 +141,6 @@ private struct EngineFooter: View {
     case .checking: "Connecting…"; case .missingCLI: "Not installed"; case .stopped: "Engine stopped"; case .running: "Engine running"
     } }
     private var color: Color { switch store.engine {
-    case .running: .harbor; case .checking: .secondary; case .missingCLI, .stopped: .orange
+    case .running: .harborLive; case .checking: .secondary; case .missingCLI, .stopped: .orange
     } }
 }

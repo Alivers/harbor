@@ -94,6 +94,7 @@ struct ContainersView: View {
                 selection = ids; tab = .overview; showInspector = true
             }
             .animation(.smooth, value: rows)
+            .glassList()
         }
     }
 
@@ -318,6 +319,7 @@ private struct ContainerOverview: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
     }
 }
 

@@ -2,15 +2,6 @@ import SwiftUI
 import AppKit
 import HarborCore
 
-extension View {
-    /// Groups content on non-list pages with a quiet fill. Glass is reserved for floating controls.
-    func card() -> some View {
-        padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.primary.opacity(0.045), in: .rect(cornerRadius: 14))
-    }
-}
-
 /// Read-only monospaced text for command output and logs. Backed by NSTextView so multi-megabyte
 /// output stays fast: new text is appended instead of re-laid out, the view keeps following the end
 /// while the reader is at the bottom, and Command-F opens the system find bar.
@@ -74,9 +65,9 @@ struct StateBadge: View {
     var body: some View {
         Text(state.capitalized)
             .font(.caption.weight(.medium))
-            .foregroundStyle(running ? Color.harbor : .secondary)
+            .foregroundStyle(running ? Color.harborLive : .secondary)
             .padding(.horizontal, 8).padding(.vertical, 3)
-            .background((running ? Color.harbor : Color.secondary).opacity(0.12), in: .capsule)
+            .background((running ? Color.harborLive : Color.secondary).opacity(0.14), in: .capsule)
             .contentTransition(.interpolate)
     }
 }

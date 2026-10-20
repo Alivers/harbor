@@ -5,11 +5,6 @@ import HarborCore
 // Explicit alias selects the property-wrapper type on SDKs that also export a State macro.
 typealias ViewState<Value> = SwiftUI.State<Value>
 
-extension Color {
-    /// Harbor's accent: a calm sea green that stays legible on Liquid Glass in light and dark mode.
-    static let harbor = Color(red: 0.20, green: 0.70, blue: 0.53)
-}
-
 @main struct HarborApp: App {
     @ViewState<Store> private var store = Store()
     @AppStorage(Preference.menuBarExtra) private var showMenuBarExtra = true

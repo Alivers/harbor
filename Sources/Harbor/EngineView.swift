@@ -176,7 +176,7 @@ struct EngineView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 16) {
-                    Image(systemName: "cpu").font(.system(size: 34, weight: .light)).foregroundStyle(store.engine.isRunning ? Color.harbor : .secondary)
+                    Image(systemName: "cpu").font(.system(size: 34, weight: .light)).foregroundStyle(store.engine.isRunning ? Color.harborLive : .secondary)
                         .symbolEffect(.pulse, isActive: busy)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(headline).font(.title2.weight(.semibold)).contentTransition(.opacity)
@@ -230,9 +230,18 @@ struct SettingsView: View {
     @ViewState<RuntimeConfig?> private var draft: RuntimeConfig?
     @AppStorage(Preference.menuBarExtra) private var showMenuBarExtra = true
     @AppStorage(Preference.notifications) private var notify = true
+    @AppStorage(Preference.glassStyle) private var glassStyle = GlassStyle.crystal.rawValue
     var body: some View {
         let edited = Binding(get: { draft ?? store.config }, set: { draft = $0 })
         Form {
+            Section {
+                Picker("Panels", selection: $glassStyle) {
+                    ForEach(GlassStyle.allCases) { Text($0.rawValue).tag($0.rawValue) }
+                }
+                .pickerStyle(.segmented)
+            } header: { Text("Appearance") } footer: {
+                Text("Crystal panels are frosted with a bright edge, so text stays easy to read. Clear panels use the system's clear Liquid Glass and show more of what is behind them. Floating controls are always clear, and with Reduce Transparency on, panels are solid.")
+            }
             Section {
                 Toggle("Show Harbor in the menu bar", isOn: $showMenuBarExtra)
                 Toggle("Notify when a job finishes in the background", isOn: $notify)
@@ -264,7 +273,7 @@ struct SettingsView: View {
             .disabled(store.bridgeOwned)
         }
         .formStyle(.grouped)
-        .frame(width: 560, height: 600)
+        .frame(width: 560, height: 700)
         .onDisappear(perform: apply)
     }
     private func apply() {
@@ -281,7 +290,7 @@ private struct PathField: View {
         LabeledContent {
             HStack {
                 TextField(title, text: $path).labelsHidden().font(.callout.monospaced())
-                Image(systemName: found ? "checkmark.circle.fill" : "exclamationmark.circle").foregroundStyle(found ? Color.harbor : .orange)
+                Image(systemName: found ? "checkmark.circle.fill" : "exclamationmark.circle").foregroundStyle(found ? Color.harborLive : .orange)
                     .help(found ? "Found" : "No executable at this path")
             }
         } label: { Text(title) }

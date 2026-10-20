@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Draws Harbor's app icon and writes Resources/AppIcon.icns.
 
-A stacked pair of shipping containers over two waves, on a sea-green squircle that follows the
+A stacked pair of shipping containers over two waves, on an Aurora Ice violet squircle that follows the
 macOS icon grid (an 824 pt body on a 1024 pt canvas). Requires Pillow: python3 -m pip install pillow
 """
 import io
@@ -77,24 +77,25 @@ def render():
     mask = Image.new("L", (SIZE, SIZE), 0)
     ImageDraw.Draw(mask).polygon(body, fill=255)
 
-    art = vertical_gradient(SIZE, (64, 196, 158), (18, 118, 104))
+    art = vertical_gradient(SIZE, (157, 140, 255), (88, 70, 228))
     draw = ImageDraw.Draw(art)
     # A gentle highlight across the top third.
     glow = Image.new("L", (SIZE, SIZE), 0)
     ImageDraw.Draw(glow).ellipse((s(-60), s(-520), s(1084), s(430)), fill=46)
     art.paste((255, 255, 255, 255), (0, 0), glow.filter(ImageFilter.GaussianBlur(s(60))))
 
-    rib = (40, 160, 130, 255)
+    rib = (118, 103, 246, 255)
     container(draw, (s(330), s(250), s(694), s(408)), rib)
     container(draw, (s(236), s(428), s(788), s(626)), rib)
     wave(art, s(704), s(16), s(34), (255, 255, 255, 255))
-    wave(art, s(784), s(14), s(30), (255, 255, 255, 140), phase=math.pi * 0.6)
+    # The second wave is Aurora mint, the color Harbor uses for running containers.
+    wave(art, s(784), s(14), s(30), (140, 240, 208, 230), phase=math.pi * 0.6)
 
     canvas.paste(art, (0, 0), mask)
     # A hairline edge keeps the shape crisp on light backgrounds.
     edge = Image.new("L", (SIZE, SIZE), 0)
     ImageDraw.Draw(edge).polygon(body, outline=60, width=s(2))
-    canvas.paste((0, 60, 50, 255), (0, 0), ImageChops.multiply(edge, mask))
+    canvas.paste((40, 22, 110, 255), (0, 0), ImageChops.multiply(edge, mask))
     return canvas.resize((1024, 1024), Image.LANCZOS)
 
 

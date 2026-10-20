@@ -91,6 +91,7 @@ struct ImagesView: View {
                 if let image = store.images.first(where: { ids.contains($0.id) }) { store.present(.run(RunOptions(image: image.reference))) }
             }
             .animation(.smooth, value: rows)
+            .glassList()
         }
     }
 }
@@ -120,7 +121,7 @@ private struct ImageListRow: View {
             Spacer(minLength: 12)
             let users = store.containers.filter { ImageReference.sameImage($0.image, image.reference) }
             if !users.isEmpty {
-                Text(users.count == 1 ? "In use" : "Used by \(users.count)").font(.caption.weight(.medium)).foregroundStyle(Color.harbor)
+                Text(users.count == 1 ? "In use" : "Used by \(users.count)").font(.caption.weight(.medium)).foregroundStyle(Color.harborText)
                     .padding(.horizontal, 7).padding(.vertical, 2)
                     .background(Color.harbor.opacity(0.12), in: .capsule)
                     .help(users.map(\.name).joined(separator: ", "))

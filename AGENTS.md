@@ -65,8 +65,8 @@ optional Compose → Docker CLI --host unix://<socktainer socket> → Socktainer
   - When a job ends, `banner` drives the activity capsule (failures stay, successes clear after 4 s), `changeCount` tells raw listings to reload, and `refresh()`/`refreshServices()` re-read state.
   - `present(_:)` is the only way to show a sheet; it closes the current one first, since macOS shows one at a time.
   - The store owns polling (started in `init`, so it continues for the menu bar extra with the window closed): every 6 s while the app is active, every 30 s in the background only while the menu bar extra is shown. `apply` only reassigns values that changed, and a refresh requested mid-read queues one more pass. Async work snapshots `config` and discards results if it changed meanwhile.
-  - Persists only `RuntimeConfig`, Compose project paths and the two `Preference` toggles (menu bar extra, notifications) in `UserDefaults`. A job that fails or runs 5 s or longer while Harbor is inactive posts a user notification. Owns the Socktainer process it starts (`startBridge`/`stopOwnedBridge`; stopped when it fails to become ready and, via a `willTerminate` observer in `init`, on quit even if the window is closed) and Terminal hand-off via `osascript`. `help(for:)`/`supports(_:flag:)` cache local `--help` to gate optional features such as log following.
-- `HarborApp.swift`: the window, settings and `MenuBarExtra` scenes, menu commands and keyboard shortcuts, `Color.harbor`, the `ViewState` alias.
+  - Persists only `RuntimeConfig`, Compose project paths and the `Preference` values (menu bar extra, notifications, glass style) in `UserDefaults`. A job that fails or runs 5 s or longer while Harbor is inactive posts a user notification. Owns the Socktainer process it starts (`startBridge`/`stopOwnedBridge`; stopped when it fails to become ready and, via a `willTerminate` observer in `init`, on quit even if the window is closed) and Terminal hand-off via `osascript`. `help(for:)`/`supports(_:flag:)` cache local `--help` to gate optional features such as log following.
+- `HarborApp.swift`: the window, settings and `MenuBarExtra` scenes, menu commands and keyboard shortcuts, the `ViewState` alias.
 - `MenuBarView.swift`: the menu bar extra (engine state, per-container actions, opening the window).
 - `ContainerPanels.swift`: the inspector's Stats tab (two samples per point, Swift Charts) and Files tab (browse, download, upload, drop to upload).
 - `FormSheets.swift`: Build Image, Tag Image, Create Network, Create Volume and Import Images sheets.
@@ -75,7 +75,8 @@ optional Compose → Docker CLI --host unix://<socktainer socket> → Socktainer
 - `ContainersView.swift`, `ImagesView.swift`, `RunContainerSheet.swift` (with `PullImageSheet` in the images file), `ComposeView.swift`, `EngineView.swift` (also `EngineSetupView` for first-run states, and `SettingsView`, which edits a draft that `Store.applySettings` commits so half-typed paths never reach the live config).
 - `NativeViews.swift`: `ResourceView` for build/network/volume/machine/registry/k8s (the CLI listing parsed with `TextTable`, per-row actions from `Page.rowActions` that prefill the resource name via `NativeOperation.example(naming:)`), the command catalog, and `NativeOperationSheet` (edit args, load and verify local `--help`, enable Run only if the help matched, confirm destructive ops, optionally run in Terminal; `system dns create/delete` run with `sudo` in Terminal).
 - `Setup.swift`: installing Apple Container (`installWithHomebrew`, `installWithHomebrewInTerminal`, `installWithOfficialInstaller`), all ending in `startInstalledEngine` (locate the CLI, `adoptCLI`, `system start`), plus `HostInfo.isAppleSilicon`. `SetupGuide` in `EngineView.swift` is its UI.
-- `Components.swift`: `LogTextView`/`OutputPanel` (NSTextView-backed output that appends incrementally and follows the end), `PortLinks`, `StateBadge`, `RowIcon`, `EntryListEditor`, and the `card()` modifier.
+- `Components.swift`: `LogTextView`/`OutputPanel` (NSTextView-backed output that appends incrementally and follows the end), `PortLinks`, `StateBadge`, `RowIcon`, `EntryListEditor`.
+- `Theme.swift`: the Aurora Ice colors (dynamic light/dark), `AuroraBackdrop` (a `MeshGradient`), `GlassStyle`, the `GlassPanel` modifier with `glassPanel()`, `card()` and `glassList()`.
 
 ## Invariants to preserve
 
@@ -98,7 +99,14 @@ optional Compose → Docker CLI --host unix://<socktainer socket> → Socktainer
 
 ## UI conventions
 
-- Use native structure first (split view, toolbar, `searchable`, inspector, `ContentUnavailableView`, grouped `Form`); it picks up Liquid Glass and platform behavior for free. Custom glass (`glassEffect`, `GlassEffectContainer`) is for floating controls only, such as the activity capsule; content uses plain fills (`card()`).
+- Use native structure first (split view, toolbar, `searchable`, inspector, `ContentUnavailableView`, grouped `Form`); it picks up Liquid Glass and platform behavior for free.
+- The look is **Aurora Ice with hybrid glass** (`Theme.swift`). Pages sit on `AuroraBackdrop`, which extends under the sidebar. Content panels use `glassPanel()`: `card()` for grouped content, `glassList()` for lists and their forms. These panels are crystal (frosted, edge light, sheen) or the system's clear glass, per the user's `GlassStyle` setting. Floating controls, such as the activity capsule, always use clear Liquid Glass (`.glassEffect(.clear…)`). Reduce Transparency makes panels solid. Don't add other materials or fills for content.
+- Colors come from `Theme.swift` only, never literal values in views:
+  - `Color.harbor` (violet) for tint, selection and brand icons;
+  - `Color.harborText` for small violet text;
+  - `Color.harborLive` (mint) for running, connected and success.
+  
+  Each has a light and a dark value; keep text at 4.5:1 on glass in both.
 - Lifecycle actions run as quiet jobs with a `subject`; only commands whose output is the point pass `showOutput: true`.
 - Animate state changes with `.animation(_:value:)` scoped to the value that changed, not global animations.
 - Long or growing text goes through `OutputPanel`, never a giant `Text`.

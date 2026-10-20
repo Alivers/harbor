@@ -39,7 +39,7 @@ private struct CompatibilityCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
-                Circle().fill(store.dockerConnected ? Color.harbor : .orange).frame(width: 9, height: 9)
+                Circle().fill(store.dockerConnected ? Color.harborLive : .orange).frame(width: 9, height: 9)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(store.dockerConnected ? "Docker API ready" : "Compatibility service not running").font(.headline)
                     Text("Only Compose needs this. Native containers, images and builds never do.").font(.callout).foregroundStyle(.secondary)
@@ -84,7 +84,7 @@ private struct CompatibilityCard: View {
     private func dependency(_ name: String, _ path: String) -> some View {
         let found = FileManager.default.isExecutableFile(atPath: path)
         return GridRow {
-            Image(systemName: found ? "checkmark.circle.fill" : "circle.dashed").foregroundStyle(found ? Color.harbor : .orange)
+            Image(systemName: found ? "checkmark.circle.fill" : "circle.dashed").foregroundStyle(found ? Color.harborLive : .orange)
             Text(name)
             Text(path).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
         }
@@ -175,7 +175,7 @@ private struct ProjectCard: View {
                 VStack(spacing: 6) {
                     ForEach(rows) { c in
                         HStack(spacing: 8) {
-                            Circle().fill(c.running ? Color.harbor : .secondary).frame(width: 7, height: 7)
+                            Circle().fill(c.running ? Color.harborLive : .secondary).frame(width: 7, height: 7)
                             Text(c.service.isEmpty ? c.name : c.service).font(.callout.monospaced()).lineLimit(1).help(c.name)
                             Text(c.status).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                             Spacer()
