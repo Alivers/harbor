@@ -42,9 +42,6 @@ enum Preference {
     static let notifications = "notifyWhenInactive"
     /// A `GlassStyle` raw value.
     static let glassStyle = "glassStyle"
-    /// How much of the wallpaper covers the blurred desktop behind the window: 1 is the wallpaper alone, 0 only the desktop.
-    static let backdropTint = "wallpaperOpacity"
-    static let defaultBackdropTint = 1.0
     static func enabled(_ key: String) -> Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
 }
 

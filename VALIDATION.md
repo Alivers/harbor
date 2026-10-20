@@ -71,8 +71,8 @@ The look was chosen from a canvas of browser mockups that compared four glass ma
 
 Screenshots showed the app still far from the chosen design: system split view, the sidebar collapsing while the inspector opened, a gray selection, and glass that barely showed. The shell was rebuilt from the design's source values.
 
-- **What changed:** no title bar, with the system's own window buttons moved into the sidebar pane; floating panes for sidebar, page and inspector; a custom list with violet selection; the design's wallpaper drawn in the window; crystal panes that mirror a pre-blurred copy of it (blur 14, saturate 1.8) under the design's tint, glow, sheen and edges; Core Animation pane shadows.
-- **Built by CI only.** None of it has been looked at on a Mac yet. Still to check there: the traffic lights' hover symbols and states, window dragging from gaps and titles, the inspector slide, keyboard selection in lists, the mirror lining up with the wallpaper while resizing and scrolling, dark mode, the clear-glass setting, the wallpaper slider and Reduce Transparency.
+- **What changed:** no title bar, with the system's own window buttons moved into the sidebar pane; floating panes for sidebar, page and inspector; a custom list with violet selection; a clear window (the design's harbor is its desktop wallpaper), with panes that blur what is behind the window under the design's tint, glow, sheen and edges; Core Animation pane shadows. A first version drew the harbor inside the window; a screenshot showed that reads as an app background, so it was removed.
+- **Built by CI only.** None of it has been looked at on a Mac yet. Still to check there: the traffic lights' hover symbols and states, window dragging from gaps and titles, the inspector slide, keyboard selection in lists, clicks and dragging in the window's clear gaps, how the panes look over different desktops, dark mode, the clear-glass setting and Reduce Transparency.
 
 ## Not yet verified
 

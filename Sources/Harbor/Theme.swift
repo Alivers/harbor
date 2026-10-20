@@ -2,7 +2,8 @@ import SwiftUI
 import AppKit
 
 // Aurora Ice with hybrid glass, as in the design's E + 4 window (light) and its deep-indigo night version.
-// Panes of crystal glass float over a harbor wallpaper; small floating controls use the system's clear Liquid Glass.
+// The window is clear; panes of crystal glass float over the desktop, and small floating controls use the system's
+// clear Liquid Glass. (The harbor in the design's mockup is its desktop wallpaper, not part of the app.)
 // Every value below comes from the design unless a comment says otherwise.
 
 extension Color {
@@ -32,13 +33,10 @@ extension Color {
 enum GlassStyle: String, CaseIterable, Identifiable {
     /// Frosted crystal: the backdrop blurred and saturated under a lilac-white tint, with edge light and a sheen.
     case crystal = "Crystal"
-    /// The system's clear Liquid Glass: barely blurred, so the wallpaper stays sharp.
+    /// The system's clear Liquid Glass: barely blurred, so what is behind stays sharp.
     case clear = "Clear"
     var id: String { rawValue }
 }
-
-/// The coordinate space of the whole window, shared by the wallpaper and the panes that mirror it.
-enum Backdrop { static let space = "harbor.backdrop" }
 
 /// A plain key rather than the `@Entry` macro, whose plugin may ship only with full Xcode, not the Command Line Tools.
 private struct InsidePaneKey: EnvironmentKey { static let defaultValue = false }
@@ -51,163 +49,67 @@ extension EnvironmentValues {
     }
 }
 
-/// The window's wallpaper: rows of corrugated containers under a soft glow, drawn from the window's top-left at a fixed
-/// size, so resizing never redraws it and panes can mirror the part behind them.
-struct Wallpaper: View {
-    let dark: Bool
-    /// As large as the largest screen (within reason), so the window never outgrows it.
-    @MainActor static let size: CGSize = {
-        let screens = NSScreen.screens.map(\.frame.size)
-        let width = min(max(screens.map(\.width).max() ?? 0, 1600), 4096)
-        let height = min(max(screens.map(\.height).max() ?? 0, 1000), 2560)
-        return CGSize(width: width, height: height)
-    }()
-    var body: some View {
-        Canvas { context, size in Self.draw(in: &context, size: size, palette: dark ? .dark : .light) }
-            .frame(width: Self.size.width, height: Self.size.height)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-    }
-
-    private struct Palette {
-        let background: UInt32
-        let glow: UInt32
-        let blocks: [UInt32]
-        let rib: Double
-        let veil: Double
-        /// The window's own faint tint over the desktop (rgba(t, .08) in the design).
-        let wash: Color
-        static let light = Palette(background: 0xE9EEFF, glow: 0xD5CCFF, blocks: [0xB9A8FF, 0x8CF0D0, 0xFFC7DD, 0xA8D8FF, 0x6B5BFF, 0xDCE6FF],
-                                   rib: 0.13, veil: 0.12, wash: Color(hex: 0xFAF8FF).opacity(0.08))
-        // Not in the design, which is light only: the same harbor at night in indigo, violet, teal and plum.
-        static let dark = Palette(background: 0x0E1030, glow: 0x4B3BB8, blocks: [0x3D2F9E, 0x16806A, 0x8B3A68, 0x24589C, 0x6656F0, 0x232A5E],
-                                  rib: 0.24, veil: 0.18, wash: Color(hex: 0x1A1B3A).opacity(0.10))
-    }
-
-    // Types are spelled out: mixed integer and CGFloat literals here are slow for the type checker.
-    private static func draw(in context: inout GraphicsContext, size: CGSize, palette: Palette) {
-        let bounds = CGRect(origin: .zero, size: size)
-        let background: Color = Color(hex: palette.background)
-        context.fill(Path(bounds), with: .color(background))
-        // The design's window sits at (36, 30) on this desktop; drawing it shifted shows the window the same part.
-        let glow: Color = Color(hex: palette.glow)
-        let center = CGPoint(x: 764, y: 90)
-        let circle = CGRect(x: center.x - 280, y: center.y - 280, width: 560, height: 560)
-        context.fill(Path(ellipseIn: circle), with: .radialGradient(Gradient(colors: [glow, glow.opacity(0)]), center: center, startRadius: 0, endRadius: 277))
-        drawBlocks(in: &context, size: size, palette: palette)
-        context.fill(Path(bounds), with: .color(background.opacity(palette.veil)))
-        context.fill(Path(bounds), with: .color(palette.wash))
-    }
-    private static func drawBlocks(in context: inout GraphicsContext, size: CGSize, palette: Palette) {
-        let colors: [Color] = palette.blocks.map { Color(hex: $0) }
-        let rib: Color = Color.black.opacity(palette.rib)
-        let height: CGFloat = 54
-        let rows: Int = Int((size.height + 30) / 62) + 1
-        for r in 0..<rows {
-            let y: CGFloat = CGFloat(r) * 62 - 22
-            let start: Int = (r * 53) % 120
-            var x: CGFloat = -CGFloat(start) - 36
-            var i: Int = 0
-            while x < size.width {
-                let step: Int = (r * 31 + i * 47) % 4
-                let width: CGFloat = CGFloat(120 + step * 30)
-                if (r * 7 + i * 3) % 9 != 0 {
-                    let block = CGRect(x: x, y: y, width: width, height: height)
-                    let shape = Path(roundedRect: block, cornerRadius: 4)
-                    context.fill(shape, with: .color(colors[(r * 3 + i * 5) % colors.count]))
-                    // Corrugation: a 3 pt groove every 13 pt, starting 10 pt in.
-                    var ribs = Path()
-                    var groove: CGFloat = block.minX + 10
-                    while groove < block.maxX {
-                        ribs.addRect(CGRect(x: groove, y: block.minY, width: min(3, block.maxX - groove), height: height))
-                        groove += 13
-                    }
-                    var inside = context
-                    inside.clip(to: shape)
-                    inside.fill(ribs, with: .color(rib))
-                }
-                x += width + 8
-                i += 1
-            }
-        }
-    }
-}
-
-/// Behind the wallpaper: the desktop, blurred by the window server. It shows only where the Background setting
-/// thins the wallpaper out; with Reduce Transparency the window is solid.
+/// The window's own fill. In the design the window is a sheet of clear glass over the desktop: tinted 8 % lilac white,
+/// not blurred, so the desktop and the windows below stay sharp around the panes. Only the panes frost what is behind
+/// them. With Reduce Transparency the window is solid.
 struct WindowBackdrop: View {
-    @AppStorage(Preference.backdropTint) private var tint = Preference.defaultBackdropTint
+    @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     var body: some View {
-        if reduceTransparency || tint >= 1 { Color(nsColor: .windowBackgroundColor) } else { DesktopBlur() }
+        if reduceTransparency { Color(nsColor: .windowBackgroundColor) }
+        else { scheme == .dark ? Color(hex: 0x1A1B3A).opacity(0.10) : Color(hex: 0xFAF8FF).opacity(0.08) }
     }
 }
 
-/// What lies behind the window, blurred by the window server.
+/// What lies behind the window (the desktop and other windows), blurred by the window server.
 struct DesktopBlur: NSViewRepresentable {
     var cornerRadius: CGFloat = 0
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
         view.blendingMode = .behindWindow
-        view.material = .underWindowBackground
+        // The most see-through of the system's materials: it lets the desktop's colors come through.
+        view.material = .sidebar
         view.state = .active
-        view.wantsLayer = true
         return view
     }
     func updateNSView(_ view: NSVisualEffectView, context: Context) {
-        view.layer?.cornerRadius = cornerRadius
-        view.layer?.cornerCurve = .continuous
-        view.layer?.masksToBounds = cornerRadius > 0
-    }
-}
-
-/// The wallpaper blurred and saturated the way the design's crystal glass treats its backdrop (blur 14, saturate 1.8),
-/// rendered once per appearance. Each crystal pane draws the part behind it, which is what live glass would show
-/// over a backdrop that never moves.
-@MainActor @Observable final class BackdropCache {
-    private var images: [Bool: NSImage] = [:]
-    func image(dark: Bool) -> NSImage? { images[dark] }
-    func prepare(dark: Bool) {
-        guard images[dark] == nil else { return }
-        let renderer = ImageRenderer(content: Wallpaper(dark: dark).blur(radius: 14, opaque: true).saturation(1.8))
-        // The image is blurred, so half the resolution looks the same and costs a quarter of the memory.
-        renderer.scale = 0.5
-        images[dark] = renderer.nsImage
-    }
-}
-
-/// The blurred wallpaper, placed so it lines up with the wallpaper behind the pane.
-private struct BackdropMirror: View {
-    let image: NSImage
-    var body: some View {
-        GeometryReader { proxy in
-            let origin = proxy.frame(in: .named(Backdrop.space)).origin
-            Image(nsImage: image)
-                .resizable()
-                .frame(width: Wallpaper.size.width, height: Wallpaper.size.height)
-                .offset(x: -origin.x, y: -origin.y)
+        if context.coordinator.radius != cornerRadius {
+            context.coordinator.radius = cornerRadius
+            view.maskImage = cornerRadius > 0 ? Self.mask(radius: cornerRadius) : nil
         }
     }
+    final class Coordinator { var radius: CGFloat = 0 }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    /// A stretchable rounded mask, the documented way to round a behind-window blur. The corners use SwiftUI's
+    /// continuous curve so they match the pane's outline, which reaches about 1.6 radii along each edge.
+    private static func mask(radius: CGFloat) -> NSImage {
+        let inset = ceil(radius * 1.6)
+        let side = inset * 2 + 1
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            NSColor.black.setFill()
+            NSBezierPath(cgPath: RoundedRectangle(cornerRadius: radius, style: .continuous).path(in: rect).cgPath).fill()
+            return true
+        }
+        image.capInsets = NSEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
+        image.resizingMode = .stretch
+        return image
+    }
 }
 
-/// A crystal pane's back: the blurred desktop (when the wallpaper lets it through), the mirrored wallpaper, then the glass.
+/// A crystal pane's back: whatever is behind the window, blurred by the window server, under the design's glass.
 private struct CrystalBackdrop: View {
     var radius: CGFloat
-    @AppStorage(Preference.backdropTint) private var tint = Preference.defaultBackdropTint
     @Environment(\.colorScheme) private var scheme
-    @Environment(BackdropCache.self) private var cache: BackdropCache?
     var body: some View {
-        let dark = scheme == .dark
         ZStack {
-            if tint < 1 { DesktopBlur(cornerRadius: radius) }
-            if let image = cache?.image(dark: dark) { BackdropMirror(image: image).opacity(tint) }
-            CrystalSurface(radius: radius, dark: dark)
+            DesktopBlur(cornerRadius: radius)
+            CrystalSurface(radius: radius, dark: scheme == .dark)
         }
         .allowsHitTesting(false)
     }
 }
 
-/// The design's crystal recipe over the mirrored backdrop: a lilac-white gradient, an inner glow that is strongest at the
+/// The design's crystal recipe over the blurred backdrop: a lilac-white gradient, an inner glow that is strongest at the
 /// top, a sheen from the top-left, a bright line along the top edge, a faint shade along the bottom, a hairline border.
 private struct CrystalSurface: View {
     var radius: CGFloat
@@ -223,14 +125,15 @@ private struct CrystalSurface: View {
             drawEdges(in: &context, rect: rect)
         }
     }
-    /// linear-gradient(160deg, tint .55, tint .24), with the gradient line spanning the corners as CSS does.
+    /// linear-gradient(160deg, tint, tint), with the gradient line spanning the corners as CSS does. The design's
+    /// .55 → .24 is lightened here because the system's blur already brightens the backdrop.
     private func drawFill(in context: inout GraphicsContext, size: CGSize) {
         let tint: Color = Color(hex: dark ? 0x1A1B3A : 0xFAF8FF)
         let dx: CGFloat = 0.342, dy: CGFloat = 0.940
         let half: CGFloat = (size.width * dx + size.height * dy) / 2
         let start = CGPoint(x: size.width / 2 - half * dx, y: size.height / 2 - half * dy)
         let end = CGPoint(x: size.width / 2 + half * dx, y: size.height / 2 + half * dy)
-        let gradient = Gradient(colors: [tint.opacity(dark ? 0.62 : 0.55), tint.opacity(dark ? 0.38 : 0.24)])
+        let gradient = Gradient(colors: [tint.opacity(dark ? 0.42 : 0.32), tint.opacity(dark ? 0.24 : 0.12)])
         context.fill(Path(CGRect(origin: .zero, size: size)), with: .linearGradient(gradient, startPoint: start, endPoint: end))
     }
     /// inset 0 22px 36px -28px white .7: the pane shrunk by 28, moved down 22 and blurred (σ 18) leaves a glow
@@ -345,7 +248,7 @@ struct GlassPanel: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
         let dark = scheme == .dark
         if nested {
-            // A second sheet of glass would mirror the wallpaper again and read as a hole in the pane.
+            // A second sheet of glass would blur the desktop again and read as a hole in the pane.
             let shape = RoundedRectangle(cornerRadius: min(radius, 12), style: .continuous)
             content
                 .background(Color.white.opacity(dark ? 0.06 : 0.4), in: shape)

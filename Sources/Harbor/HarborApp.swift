@@ -7,17 +7,15 @@ typealias ViewState<Value> = SwiftUI.State<Value>
 
 @main struct HarborApp: App {
     @ViewState<Store> private var store = Store()
-    @ViewState<BackdropCache> private var backdrop = BackdropCache()
     @AppStorage(Preference.menuBarExtra) private var showMenuBarExtra = true
     var body: some Scene {
         // One window: the store's sheet and activity state belong to a single place.
         Window("Harbor", id: "main") {
             RootView()
                 .environment(store)
-                .environment(backdrop)
                 .frame(minWidth: 1000, minHeight: 600)
                 .tint(.harbor)
-                // RootView draws the wallpaper; behind it the window shows the blurred desktop when the wallpaper is thinned out.
+                // A faint tint only: the window itself is clear, and the desktop shows through between the panes.
                 .containerBackground(for: .window) { WindowBackdrop() }
         }
         // No title bar: the panes float right up to the top, and the window's buttons sit in the sidebar pane.

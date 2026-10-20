@@ -228,7 +228,6 @@ struct SettingsView: View {
     @AppStorage(Preference.menuBarExtra) private var showMenuBarExtra = true
     @AppStorage(Preference.notifications) private var notify = true
     @AppStorage(Preference.glassStyle) private var glassStyle = GlassStyle.crystal.rawValue
-    @AppStorage(Preference.backdropTint) private var backdropTint = Preference.defaultBackdropTint
     var body: some View {
         let edited = Binding(get: { draft ?? store.config }, set: { draft = $0 })
         Form {
@@ -237,9 +236,8 @@ struct SettingsView: View {
                     ForEach(GlassStyle.allCases) { Text($0.rawValue).tag($0.rawValue) }
                 }
                 .pickerStyle(.segmented)
-                Slider(value: $backdropTint, in: 0...1) { Text("Background") } minimumValueLabel: { Text("Desktop") } maximumValueLabel: { Text("Harbor") }
             } header: { Text("Appearance") } footer: {
-                Text("Crystal panes frost the wallpaper behind them under a bright edge and a sheen. Clear panes use the system's clear Liquid Glass and keep it sharp. Background fades the harbor wallpaper out towards your own desktop, blurred. Floating controls are always clear Liquid Glass, and with Reduce Transparency on, the panes are solid.")
+                Text("The window is clear, so your desktop shows between the panes. Crystal panes frost what is behind them under a bright edge and a sheen; clear panes use the system's clear Liquid Glass. Floating controls are always clear Liquid Glass, and with Reduce Transparency on, the window and panes are solid.")
             }
             Section {
                 Toggle("Show Harbor in the menu bar", isOn: $showMenuBarExtra)

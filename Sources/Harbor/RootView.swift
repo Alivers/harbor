@@ -36,14 +36,11 @@ struct SidebarSection: Identifiable {
         SidebarSection(title: "System", pages: [.engine, .registries, .commands])]
 }
 
-/// The window as the design draws it: no title bar, and panes of glass floating over the wallpaper with gaps
-/// between them. The sidebar is a pane of its own, with the window's buttons inside it.
+/// The window as the design draws it: no title bar and no background of its own, just panes of glass floating over
+/// the desktop with gaps between them. The sidebar is a pane of its own, with the window's buttons inside it.
 struct RootView: View {
     @Environment(Store.self) private var store
-    @Environment(BackdropCache.self) private var backdrop
-    @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @AppStorage(Preference.backdropTint) private var tint = Preference.defaultBackdropTint
     @SceneStorage("page") private var page: Page = .containers
     var body: some View {
         @Bindable var store = store
@@ -55,14 +52,8 @@ struct RootView: View {
         .foregroundStyle(Color.harborInk)
         // The gaps between the panes move the window.
         .background { WindowDragArea() }
-        .background(alignment: .topLeading) {
-            Wallpaper(dark: scheme == .dark).opacity(reduceTransparency ? 1 : tint)
-        }
-        .clipped()
-        .coordinateSpace(.named(Backdrop.space))
+        .background { TransparentWindow(transparent: !reduceTransparency) }
         .ignoresSafeArea()
-        .onAppear { backdrop.prepare(dark: scheme == .dark) }
-        .onChange(of: scheme) { _, scheme in backdrop.prepare(dark: scheme == .dark) }
         .sheet(item: $store.sheet) { route in SheetView(route: route) }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await store.refresh() }
