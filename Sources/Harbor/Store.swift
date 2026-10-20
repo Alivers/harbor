@@ -73,6 +73,9 @@ enum Preference {
     private(set) var containers: [ContainerRow] = []
     private(set) var images: [ImageRow] = []
     private(set) var imageError: String?
+    /// Raw CLI listings of the resource pages, keyed by their arguments. A page shows its last read at once
+    /// and refreshes in place, so switching pages does not make the content jump.
+    private(set) var listings: [String: String] = [:]
     /// Containers of each Compose project; only read while the Docker API is reachable.
     private(set) var services: [ComposeProject.ID: Result<[ContainerRow], Error>] = [:]
     private(set) var dockerConnected = false
@@ -117,7 +120,7 @@ enum Preference {
     /// Applies edited settings: persists them, forgets cached help and reconnects.
     func applySettings(_ edited: RuntimeConfig) {
         guard edited != config else { return }
-        config = edited; save(); helpCache = [:]
+        config = edited; save(); helpCache = [:]; listings = [:]
         Task { await refresh(); await refreshCompatibility() }
     }
 
@@ -159,6 +162,8 @@ enum Preference {
     /// so the 6-second poll does not redraw views that have nothing new to show.
     private func apply(_ state: EngineState, _ snapshot: RuntimeConfig, containers rows: [ContainerRow] = [], images imageRows: [ImageRow] = [], imageError failure: String? = nil) {
         guard config == snapshot else { return }
+        // Read what the other pages show as soon as the engine is up, so none of them opens empty.
+        if state == .running && engine != .running { Task { await prefetchPages() } }
         if engine != state { engine = state }
         if containers != rows { containers = rows }
         if images != imageRows { images = imageRows }
@@ -171,6 +176,20 @@ enum Preference {
     }
     func read(_ arguments: [String], timeout: TimeInterval = 20) async throws -> String {
         try await Runner.checked(config.nativeCommand(arguments), timeout: timeout)
+    }
+    func listing(_ arguments: [String]) -> String? { listings[arguments.joined(separator: " ")] }
+    /// Reads a resource listing into `listings`, leaving it untouched when nothing changed.
+    func readListing(_ arguments: [String]) async throws {
+        let snapshot = config
+        let text = try await read(arguments, timeout: 15)
+        let key = arguments.joined(separator: " ")
+        guard config == snapshot, listings[key] != text else { return }
+        listings[key] = text
+    }
+    /// One quiet pass over every page's data; failures are left for the page itself to show.
+    private func prefetchPages() async {
+        for page in Page.allCases where !page.listing.isEmpty { try? await readListing(page.listing) }
+        await refreshCompatibility()
     }
     /// The local help for a subcommand, cached per CLI path; nil when the CLI does not know the command.
     func help(for path: [String]) async -> String? {
@@ -547,8 +566,19 @@ enum Preference {
                 } catch { found[project.id] = .failure(error) }
             }
         }
-        guard config == snapshot else { return }
+        guard config == snapshot, !Self.sameServices(services, found) else { return }
         services = found
+    }
+    /// Results compared by rows and error text, so an unchanged read does not redraw the Compose page.
+    private static func sameServices(_ a: [ComposeProject.ID: Result<[ContainerRow], Error>], _ b: [ComposeProject.ID: Result<[ContainerRow], Error>]) -> Bool {
+        guard a.count == b.count else { return false }
+        return a.allSatisfy { id, result in
+            switch (result, b[id]) {
+            case (.success(let x), .success(let y)?): x == y
+            case (.failure(let x), .failure(let y)?): x.localizedDescription == y.localizedDescription
+            default: false
+            }
+        }
     }
 
     // MARK: Terminal, Finder and clipboard

@@ -54,9 +54,9 @@ extension NativeOperation {
 struct ResourceView: View {
     @Environment(Store.self) private var store
     let page: Page
-    @ViewState<String> private var output = ""
     @ViewState<String?> private var failure: String?
-    @ViewState<Bool> private var loaded = false
+    /// The store keeps the last read, so the page opens with it and refreshes in place instead of growing from a spinner.
+    private var output: String? { store.listing(page.listing) }
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -93,15 +93,18 @@ struct ResourceView: View {
             if let failure {
                 Label(failure, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).textSelection(.enabled).lineLimit(6)
                 Text("A stopped engine, an older CLI or a missing plugin can cause this.").font(.caption).foregroundStyle(.secondary)
-            } else if !loaded {
-                ProgressView().frame(maxWidth: .infinity, minHeight: 80)
-            } else if let table = TextTable.parse(output) {
-                if table.rows.isEmpty { Text("Nothing here yet.").foregroundStyle(.secondary) }
-                else { ResourceTable(table: table, actions: page.rowActions.compactMap(NativeOperation.named), usedBy: usedBy) }
-            } else {
-                ScrollView(.horizontal) {
-                    Text(output.isEmpty ? "No output." : output).font(.callout.monospaced()).textSelection(.enabled)
+            } else if let output {
+                if let table = TextTable.parse(output) {
+                    if table.rows.isEmpty { Text("Nothing here yet.").foregroundStyle(.secondary) }
+                    else { ResourceTable(table: table, actions: page.rowActions.compactMap(NativeOperation.named), usedBy: usedBy) }
+                } else {
+                    ScrollView(.horizontal) {
+                        Text(output.isEmpty ? "No output." : output).font(.callout.monospaced()).textSelection(.enabled)
+                    }
                 }
+            } else {
+                // Only before the very first read; the store reads every page's listing once the engine is up.
+                ProgressView().frame(maxWidth: .infinity, minHeight: 120)
             }
         }
         .card()
@@ -120,9 +123,8 @@ struct ResourceView: View {
         }
     }
     private func load() async {
-        do { let text = try await store.read(page.listing, timeout: 15); if text != output { output = text }; failure = nil }
-        catch { failure = error.localizedDescription }
-        loaded = true
+        do { try await store.readListing(page.listing); failure = nil }
+        catch { if !Task.isCancelled { failure = error.localizedDescription } }
     }
 }
 
