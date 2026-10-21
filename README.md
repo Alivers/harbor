@@ -13,7 +13,7 @@ This is the **0.4 preview** and requires **macOS 27** on Apple silicon. The app 
   - Floating controls, such as the header buttons and the activity capsule, are the system's clear Liquid Glass. With Reduce Transparency on, the panes are solid.
 - **Nothing blocks.** Starting, stopping, pulling or composing runs in the background, and several jobs can run at once; only the resource a job changes is locked. The capsule at the bottom of the window shows what is running, then how it ended. A failure stays until you dismiss it or open its output. The clock button at the foot of the sidebar lists recent jobs with their full output.
 - **Output where it matters.** Logs, inspect output, reports and raw catalog commands open their output right away. Lifecycle actions don't open anything unless they fail.
-- **Containers.** Filter by running or stopped and sort by name, image, state or age. Click a published port to open it in the browser. Rows show actions on hover, and right-click gives you the rest; select several rows to start, stop, restart or delete them together. Double-click a row, or use the details button (⌥⌘I), for:
+- **Containers.** Filter by running or stopped and sort by name, image, state or age. Click a published port to open it in the browser. Rows show actions on hover, and right-click gives you the rest; select several rows to start, stop, restart or delete them together. Double-click a row (again to close), or use the details button (⌥⌘I), for:
   - **Overview**: command, working directory, user, networks with their addresses, mounts, environment (values hidden until you show them) and labels.
   - **Logs**: recent output, followed live when the CLI supports `--follow`.
   - **Stats**: live CPU, memory and network charts.

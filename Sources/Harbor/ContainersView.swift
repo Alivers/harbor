@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import HarborCore
 
 enum ContainerFilter: String, CaseIterable, Identifiable {
@@ -33,6 +34,8 @@ struct ContainersView: View {
     @ViewState<Bool> private var showInspector = false
     @ViewState<InspectorTab> private var tab: InspectorTab = .overview
     @ViewState<[ContainerRow]> private var pendingDelete: [ContainerRow] = []
+    /// When the selection last changed, to tell a double-click on a new row from one on the row already shown.
+    @ViewState<Date> private var selectionChanged = Date.distantPast
 
     private var rows: [ContainerRow] {
         sort.ordered(store.containers.filter { c in
@@ -60,6 +63,7 @@ struct ContainersView: View {
         .animation(.smooth(duration: 0.32), value: showInspector)
         // Containers that are gone (deleted here or elsewhere) leave the selection.
         .onChange(of: store.containers.map(\.id)) { _, ids in selection.formIntersection(ids) }
+        .onChange(of: selection) { _, _ in selectionChanged = Date() }
         .confirmationDialog(deleteTitle, isPresented: Binding(get: { !pendingDelete.isEmpty }, set: { if !$0 { pendingDelete = [] } }),
                             titleVisibility: .visible) {
             Button(pendingDelete.contains(where: \.running) ? "Stop and Delete" : "Delete", role: .destructive) { pendingDelete.forEach { store.delete($0) } }
@@ -128,7 +132,7 @@ struct ContainersView: View {
                     .frame(maxHeight: .infinity)
                 } else {
                     SelectableRows(items: rows, selection: $selection, rowHeight: ContainerListRow.height,
-                                   onOpen: { c in show(c, .overview) }, onDelete: { pendingDelete = $0 }) { c in
+                                   onOpen: toggleDetails, onDelete: { pendingDelete = $0 }) { c in
                         ContainerListRow(container: c)
                     } menu: { chosen in
                         if chosen.count == 1, let c = chosen.first { menu(for: c) }
@@ -173,6 +177,15 @@ struct ContainersView: View {
         Button("Delete…", role: .destructive) { pendingDelete = [c] }.disabled(busy)
     }
     private func show(_ c: ContainerRow, _ section: InspectorTab) { selection = [c.id]; tab = section; showInspector = true }
+    /// A double-click (or Return) opens the details; on the container they already show, it closes them.
+    private func toggleDetails(_ c: ContainerRow) {
+        // A double-click's first click selects its row, so a selection that changed within the double-click
+        // interval means this double-click picked a new container, not the one already shown.
+        let justSelected = Date().timeIntervalSince(selectionChanged) < NSEvent.doubleClickInterval + 0.1
+        if showInspector, !justSelected, selection == [c.id] { showInspector = false; return }
+        if !showInspector { tab = .overview }
+        selection = [c.id]; showInspector = true
+    }
     /// Opening the details with nothing selected shows the first container rather than an empty pane.
     private func toggleInspector() {
         if !showInspector, selection.isEmpty, let first = rows.first { selection = [first.id] }
