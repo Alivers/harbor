@@ -67,7 +67,9 @@ struct ResourceView: View {
                 }
             }
             if let create = page.createAction {
-                PrimaryActionButton(title: create.title, systemImage: page == .build ? "hammer" : "plus") { store.present(create.route) }
+                PrimaryActionButton(label: page == .build ? "Build" : "Create", title: create.title, systemImage: page == .build ? "hammer" : "plus") {
+                    store.present(create.route)
+                }
                     .disabled(!store.engine.isRunning)
             }
         } content: {

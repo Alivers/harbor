@@ -92,11 +92,12 @@ enum BackdropStyle: String, CaseIterable, Identifiable {
         if changed { revision += 1 }
     }
 
-    /// Renders the copy the panes show: blur 2.5 and saturation 1.6 for clear glass, blur 14 and 1.8 for crystal.
+    /// Renders the copy the panes show: blur 6 and saturation 1.6 for clear glass (the design's 2.5 left edges behind
+    /// text too sharp to read over), blur 14 and 1.8 for crystal.
     func renderMirror(dark: Bool, glass: GlassStyle) {
         let crystal = glass == .crystal
         let content = BackdropContent(style: style, picture: picture, size: size, dark: dark)
-            .blur(radius: crystal ? 14 : 2.5, opaque: true)
+            .blur(radius: crystal ? 14 : 6, opaque: true)
             .saturation(crystal ? 1.8 : 1.6)
         let renderer = ImageRenderer(content: content)
         // A strong blur hides a lower resolution and saves three quarters of the memory.

@@ -150,23 +150,28 @@ struct HeaderMenu<Content: View>: View {
     }
 }
 
-/// The design's violet round button for a page's main action.
+/// The page's main action: the design's violet button, as a labeled capsule.
 struct PrimaryActionButton: View {
+    /// The short verb on the button ("Run", "Pull"); the design's bare icon hid what the page's main action does.
+    let label: String
+    /// The full name and shortcut, for the tooltip and VoiceOver.
     let title: String
     var systemImage = "plus"
     let action: () -> Void
     @Environment(\.isEnabled) private var enabled
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 15, weight: .bold))
+            Label(label, systemImage: systemImage)
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.white)
-                .frame(width: 34, height: 34)
-                .background(Color.harbor, in: .circle)
+                .padding(.leading, 12).padding(.trailing, 14)
+                .frame(height: 34)
+                .background(Color.harbor, in: .capsule)
                 // inset 0 1px 0 white .45, 0 6px 16px violet .4
-                .overlay { Circle().strokeBorder(LinearGradient(colors: [.white.opacity(0.45), .white.opacity(0)], startPoint: .top, endPoint: .center)) }
+                .overlay { Capsule().strokeBorder(LinearGradient(colors: [.white.opacity(0.45), .white.opacity(0)], startPoint: .top, endPoint: .center)) }
                 .shadow(color: Color.harbor.opacity(enabled ? 0.4 : 0), radius: 8, y: 6)
-                .contentShape(.circle)
+                .contentShape(.capsule)
+                .fixedSize()
         }
         .buttonStyle(PressableStyle())
         .opacity(enabled ? 1 : 0.45)

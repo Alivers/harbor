@@ -87,6 +87,15 @@ From a code review, checked against the code and fixed (built by CI; the core ch
 
 Not changed, by choice: Settings still apply when the window closes (the macOS convention, and the paths show whether they exist); the Images badge stays as in the design; the resource pages keep their own card layout for now.
 
+## Update: readability and everyday use
+
+From a usability review (built by CI, not yet looked at on a Mac):
+
+- Clear panes use a 30 % tint (the design's 12 %) and a backdrop blurred 6 (the design's 2.5), so secondary text stays readable on busy or dark backdrops.
+- Each page's main action is a labeled button (Run, Pull, Import, Create, Build) instead of a bare icon; a container row always shows start/stop, with the shell on hover or selection.
+- The Engine page hides the setup guide once the engine runs and has containers, and shows four everyday system commands (status, logs, disk usage, version), with the rest in its … menu.
+- The sidebar no longer shows the image count, which read as a notification; only running containers are counted.
+
 ## Not yet verified
 
 Apple Container / Socktainer are not formally installed on the test machine, so none of the following count as completed end-to-end tests:

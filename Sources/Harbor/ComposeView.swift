@@ -5,7 +5,7 @@ struct ComposeView: View {
     @Environment(Store.self) private var store
     var body: some View {
         PageScaffold(title: "Compose", subtitle: "Optional · via Socktainer") {
-            PrimaryActionButton(title: "Import Compose Project (⌘O)") { store.importProject() }
+            PrimaryActionButton(label: "Import", title: "Import Compose Project (⌘O)") { store.importProject() }
         } content: {
             VStack(alignment: .leading, spacing: 16) {
                 CompatibilityCard()

@@ -89,7 +89,7 @@ struct ContainersView: View {
                 .help("Show or hide details (⌥⌘I)")
                 .accessibilityLabel("Details")
         }
-        PrimaryActionButton(title: "Run Container (⌘N)") { store.present(.run(RunOptions())) }
+        PrimaryActionButton(label: "Run", title: "Run Container (⌘N)") { store.present(.run(RunOptions())) }
             .disabled(!store.engine.isRunning)
     }
 
@@ -204,23 +204,27 @@ private struct ContainerListRow: View {
                 StateBadge(state: container.state, running: container.running)
             }
             HStack(spacing: 2) {
+                // The shell is a secondary action: shown on hover, and on the selected row so the keyboard and a
+                // trackpad tap reach it too.
+                Button { store.openShell(container) } label: { Image(systemName: "terminal").frame(width: 24, height: 24).contentShape(.rect) }
+                    .help("Open a shell in Terminal").disabled(!container.running || busy)
+                    .opacity(hovering || selected ? 1 : 0)
+                // Start and stop are what a row is for, so they always show.
                 if busy {
                     ProgressView().controlSize(.small).frame(width: 24)
                 } else {
                     Button { container.running ? store.stop(container) : store.start(container) } label: {
                         Image(systemName: container.running ? "stop.fill" : "play.fill").contentTransition(.symbolEffect(.replace))
+                            .foregroundStyle(container.running ? Color.harborSub : Color.harbor)
                             .frame(width: 24, height: 24).contentShape(.rect)
                     }
                     .help(container.running ? "Stop" : "Start")
-                    Button { store.openShell(container) } label: { Image(systemName: "terminal").frame(width: 24, height: 24).contentShape(.rect) }
-                        .help("Open a shell in Terminal").disabled(!container.running)
+                    .accessibilityLabel(container.running ? "Stop \(container.name)" : "Start \(container.name)")
                 }
             }
             .buttonStyle(.plain)
             .foregroundStyle(Color.harborSub)
             .frame(width: 52, alignment: .trailing)
-            // Shown on hover, and on the selected row so the keyboard and a trackpad tap reach them too.
-            .opacity(hovering || selected || busy ? 1 : 0)
         }
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.15), value: hovering)

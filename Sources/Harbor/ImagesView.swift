@@ -35,7 +35,7 @@ struct ImagesView: View {
                 }
                 .disabled(!store.engine.isRunning)
             }
-            PrimaryActionButton(title: "Pull Image (⇧⌘P)", systemImage: "arrow.down") { store.present(.pull) }
+            PrimaryActionButton(label: "Pull", title: "Pull Image (⇧⌘P)", systemImage: "arrow.down") { store.present(.pull) }
                 .disabled(!store.engine.isRunning)
         } content: {
             content

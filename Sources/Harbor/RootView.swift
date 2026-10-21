@@ -137,8 +137,8 @@ private struct SidebarPane: View {
     }
     private func badge(for page: Page) -> Int {
         switch page {
+        // Only a count that says something is going on: running containers. A total would always look like news.
         case .containers: store.containers.filter(\.running).count
-        case .images: store.images.count
         default: 0
         }
     }

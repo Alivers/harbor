@@ -174,6 +174,7 @@ struct EngineView: View {
         let busy = store.isBusy("engine")
         PageScaffold(title: "Engine", subtitle: "Apple Container") {
             GlassControls {
+                HeaderMenu(systemName: "ellipsis", help: "All system commands") { NativeActionItems(group: "System") }
                 SettingsLink { HeaderIcon(systemName: "slider.horizontal.3") }
                     .buttonStyle(.plain).help("Tool paths and appearance").accessibilityLabel("Settings")
             }
@@ -193,17 +194,20 @@ struct EngineView: View {
                     }
                 }
                 .card()
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("Setup").font(.system(size: 13, weight: .semibold))
-                    SetupGuide()
+                // The guide is for getting started; once the engine runs and has run something, it steps aside.
+                if !setUp {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Setup").font(.system(size: 13, weight: .semibold))
+                        SetupGuide()
+                    }
+                    .card()
                 }
-                .card()
                 VStack(alignment: .leading, spacing: 10) {
                     Text("System").font(.system(size: 13, weight: .semibold))
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], spacing: 10) {
-                        ForEach(NativeOperation.operations(in: "System")) { OperationTile(operation: $0) }
+                        ForEach(NativeOperation.operations(in: "System").filter { Self.everyday.contains($0.id) }) { OperationTile(operation: $0) }
                     }
-                    Text("Quitting Harbor leaves the engine and your containers running. Features follow the local CLI's help, so newer versions add actions without a Harbor update.")
+                    Text("The other system commands, such as kernels, DNS domains and properties, are in the … menu above. Quitting Harbor leaves the engine and your containers running.")
                         .font(.caption).foregroundStyle(Color.harborSub)
                 }
                 .card()
@@ -215,6 +219,10 @@ struct EngineView: View {
             Button("Stop Engine", role: .destructive) { store.stopEngine() }
         } message: { Text("All running containers stop with it.") }
     }
+    /// Installed, running, and something has run: nothing left to set up.
+    private var setUp: Bool { store.engine.isRunning && !store.containers.isEmpty }
+    /// System commands for everyday checks; the rest stay in the page's menu.
+    private static let everyday: Set<String> = ["system status", "system logs", "system df", "system version"]
     private var headline: String { switch store.engine {
     case .checking: "Connecting…"; case .missingCLI: "Apple Container is not installed"
     case .stopped: "Engine stopped"; case .running: "Engine running"

@@ -117,7 +117,7 @@ private struct CrystalSurface: View {
     }
 }
 
-/// The design's clear glass (B) over the mirrored backdrop: a 12 % lilac-white tint, a slanted sheen, light
+/// The design's clear glass (B) over the mirrored backdrop: a lilac-white tint (stronger than the design's 12 %), a slanted sheen, light
 /// along the top and left edges and less along the bottom and right, a faint inner glow and a white hairline border.
 private struct ClearSurface: View {
     var radius: CGFloat
@@ -128,7 +128,9 @@ private struct ClearSurface: View {
             let outline: Path = RoundedRectangle(cornerRadius: radius, style: .continuous).path(in: rect)
             context.clip(to: outline)
             let tint: Color = Color(hex: dark ? 0x1A1B3A : 0xFAF8FF)
-            context.fill(Path(rect), with: .color(tint.opacity(dark ? 0.18 : 0.12)))
+            // The design's 12 % let busy color sit right under small gray text; 30 % keeps it readable on any
+            // backdrop while the shapes behind still show.
+            context.fill(Path(rect), with: .color(tint.opacity(dark ? 0.34 : 0.3)))
             drawSheen(in: &context, size: size)
             drawGlow(in: &context, size: size)
             drawEdges(in: &context, rect: rect)
