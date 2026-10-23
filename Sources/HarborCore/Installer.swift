@@ -1,7 +1,7 @@
 import Foundation
 
 /// The signed installer package of an apple/container GitHub release.
-public struct InstallerPackage: Equatable, Sendable {
+public struct InstallerPackage: Equatable, Codable, Sendable {
     public static let latestRelease = URL(string: "https://api.github.com/repos/apple/container/releases/latest")!
     public static let releasesPage = URL(string: "https://github.com/apple/container/releases")!
     public var version: String
@@ -47,9 +47,29 @@ public enum ReleaseVersion {
         func padded(_ v: [Int]) -> [Int] { v + Array(repeating: 0, count: count - v.count) }
         return padded(b).lexicographicallyPrecedes(padded(a))
     }
+    /// Whether a new major version, which upstream warns may need its own upgrade path.
+    public static func isMajorUpgrade(_ candidate: String, from installed: String) -> Bool {
+        func major(_ version: String) -> Int { Int(version.prefix { $0 != "." }.filter(\.isNumber)) ?? 0 }
+        return major(candidate) > major(installed)
+    }
     /// Whether the CLI at `path` belongs to Homebrew (a link into its Cellar), which then also updates it.
     public static func managedByHomebrew(_ path: String) -> Bool {
         URL(fileURLWithPath: path).resolvingSymlinksInPath().path.contains("/Cellar/")
+    }
+    /// Where Apple's package installs the CLI.
+    public static let packagePath = "/usr/local/bin/container"
+    /// Whether the CLI at `path` is the one Apple's package installs, and so the one an update replaces.
+    public static func installedByPackage(_ path: String) -> Bool {
+        func resolved(_ path: String) -> String { URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path }
+        return resolved(path) == resolved(packagePath)
+    }
+    /// The version Homebrew's formula offers, from `brew info --json=v2 container`.
+    public static func homebrewStable(_ json: String) -> String? {
+        struct Info: Decodable {
+            struct Formula: Decodable { struct Versions: Decodable { var stable: String? }; var versions: Versions }
+            var formulae: [Formula]
+        }
+        return (try? JSONDecoder().decode(Info.self, from: Data(json.utf8)))?.formulae.first?.versions.stable
     }
     /// The release page of a version, for its notes.
     public static func notes(_ version: String) -> URL { InstallerPackage.releasesPage.appendingPathComponent("tag").appendingPathComponent(version) }

@@ -100,17 +100,40 @@ extension Store {
     func checkForUpdate() async {
         guard Preference.enabled(Preference.updateCheck), Date().timeIntervalSince(lastUpdateCheck) >= 86_400 else { return }
         lastUpdateCheck = Date()
+        UserDefaults.standard.set(lastUpdateCheck, forKey: Preference.lastUpdateCheck)
         guard let package = try? await Self.latestPackage(), latestRelease != package else { return }
         latestRelease = package
+        UserDefaults.standard.set(try? JSONEncoder().encode(package), forKey: Preference.latestRelease)
+    }
+    /// Turning the check off hides what it found at once; turning it on checks at the next poll.
+    func updateCheckChanged(_ enabled: Bool) {
+        lastUpdateCheck = .distantPast
+        UserDefaults.standard.removeObject(forKey: Preference.lastUpdateCheck)
+        if !enabled { latestRelease = nil; UserDefaults.standard.removeObject(forKey: Preference.latestRelease) }
     }
     /// Stops the engine, installs the new release the way the CLI was installed (Homebrew or Apple's package), and
-    /// starts the engine again. Containers stop with the engine; the caller confirms that first.
+    /// starts the engine again. Containers stop with the engine; the caller confirms that first. Nothing is stopped
+    /// when the update cannot replace the CLI Harbor uses.
     func updateEngine(to package: InstallerPackage) {
         let snapshot = config, wasRunning = engine.isRunning
         let brew = ReleaseVersion.managedByHomebrew(snapshot.container) ? homebrew : nil
         run("Update Apple Container to \(package.version)", subject: "engine") { [self] job in
-            if ReleaseVersion.managedByHomebrew(snapshot.container) && brew == nil {
+            var environment = RuntimeConfig.toolEnvironment
+            environment["HOMEBREW_NO_ENV_HINTS"] = "1"; environment["HOMEBREW_NO_COLOR"] = "1"
+            if let brew {
+                // The formula can lag the GitHub release by days, and then brew upgrade would do nothing.
+                job.note("Asking Homebrew which version it offers…")
+                try await stream(Command(brew, ["update"], environment: environment), into: job, timeout: 600)
+                let offered = ReleaseVersion.homebrewStable(try await Runner.checked(Command(brew, ["info", "--json=v2", "container"], environment: environment), timeout: 120))
+                guard let offered, !ReleaseVersion.isNewer(package.version, than: offered) else {
+                    throw HarborError.message("Homebrew does not offer Apple Container \(package.version) yet" + (offered.map { "; it has \($0)" } ?? "")
+                                              + ". Nothing was stopped. Try again once Homebrew's formula is updated.")
+                }
+                environment["HOMEBREW_NO_AUTO_UPDATE"] = "1"
+            } else if ReleaseVersion.managedByHomebrew(snapshot.container) {
                 throw HarborError.message("This Apple Container came from Homebrew, but brew was not found. Run brew upgrade container in Terminal.")
+            } else if !ReleaseVersion.installedByPackage(snapshot.container) {
+                throw HarborError.message("Apple's installer replaces \(ReleaseVersion.packagePath), not the copy Harbor uses at \(snapshot.container). Update that copy yourself, or choose \(ReleaseVersion.packagePath) in Settings.")
             }
             if wasRunning {
                 job.note("Stopping the engine…")
@@ -119,8 +142,6 @@ extension Store {
             do {
                 if let brew {
                     job.note("Updating with Homebrew: brew upgrade container")
-                    var environment = RuntimeConfig.toolEnvironment
-                    environment["HOMEBREW_NO_ENV_HINTS"] = "1"; environment["HOMEBREW_NO_COLOR"] = "1"
                     try await stream(Command(brew, ["upgrade", "container"], environment: environment), into: job, timeout: 3600)
                 } else {
                     try await openInInstaller(package, job: job)

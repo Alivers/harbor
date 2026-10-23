@@ -51,6 +51,9 @@ enum Preference {
     static let backdropPicture = "backdropPicture"
     /// Whether Harbor asks GitHub once a day for the latest Apple Container release.
     static let updateCheck = "checkForUpdates"
+    /// When that check last asked GitHub and what it found, so it stays daily across launches.
+    static let lastUpdateCheck = "lastUpdateCheck"
+    static let latestRelease = "latestRelease"
     static func enabled(_ key: String) -> Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
 }
 
@@ -93,7 +96,7 @@ enum Preference {
     /// The installed CLI's version, from `container --version`; nil until read or when it cannot be read.
     private(set) var installedVersion: String?
     /// The newest release on GitHub, when the update check is on and has run (set by `checkForUpdate`).
-    var latestRelease: InstallerPackage?
+    var latestRelease: InstallerPackage? = UserDefaults.standard.data(forKey: Preference.latestRelease).flatMap { try? JSONDecoder().decode(InstallerPackage.self, from: $0) }
     /// Newest first. Jobs run concurrently; only jobs on the same `subject` exclude each other.
     private(set) var jobs: [Job] = []
     /// Bumped whenever a job finishes, so views showing raw CLI listings know to read them again.
@@ -111,7 +114,7 @@ enum Preference {
     @ObservationIgnored private var helpCache: [String: String] = [:]
     /// The CLI path `installedVersion` belongs to.
     @ObservationIgnored var versionPath = ""
-    @ObservationIgnored var lastUpdateCheck = Date.distantPast
+    @ObservationIgnored var lastUpdateCheck = UserDefaults.standard.object(forKey: Preference.lastUpdateCheck) as? Date ?? .distantPast
     @ObservationIgnored private var bridge: Process?
     @ObservationIgnored private var bridgeLog: FileHandle?
     @ObservationIgnored private var terminationObserver: NSObjectProtocol?

@@ -344,6 +344,18 @@ final class HarborCoreTests {
         try FileManager.default.createSymbolicLink(atPath: bin.appendingPathComponent("container").path, withDestinationPath: "../Cellar/container/1.6.0/bin/container")
         XCTAssertTrue(ReleaseVersion.managedByHomebrew(bin.appendingPathComponent("container").path))
         XCTAssertFalse(ReleaseVersion.managedByHomebrew(bin.appendingPathComponent("plain").path))
+        // Apple's package replaces only /usr/local/bin/container; a copy elsewhere stays as it is.
+        XCTAssertTrue(ReleaseVersion.installedByPackage("/usr/local/bin/container") && ReleaseVersion.installedByPackage("/usr/local/bin/../bin/container"))
+        XCTAssertFalse(ReleaseVersion.installedByPackage("/opt/homebrew/bin/container") || ReleaseVersion.installedByPackage(bin.appendingPathComponent("plain").path))
+        // Homebrew can lag a release; its formula says what `brew upgrade` would install.
+        XCTAssertEqual(ReleaseVersion.homebrewStable(#"{"formulae":[{"name":"container","versions":{"stable":"1.5.0","head":null,"bottle":true}}],"casks":[]}"#), "1.5.0")
+        XCTAssertNil(ReleaseVersion.homebrewStable(#"{"formulae":[],"casks":[]}"#)); XCTAssertNil(ReleaseVersion.homebrewStable("Error: No available formula"))
+        XCTAssertTrue(ReleaseVersion.isMajorUpgrade("2.0.0", from: "1.6.0") && ReleaseVersion.isMajorUpgrade("1.0.0", from: "0.12.1"))
+        XCTAssertFalse(ReleaseVersion.isMajorUpgrade("1.7.0", from: "1.6.0") || ReleaseVersion.isMajorUpgrade("1.6.0", from: "1.6.0"))
+        // The last release found survives a relaunch, so the card does not wait a day to come back.
+        let release = #"{"tag_name":"1.6.0","assets":[{"name":"container-1.6.0-installer-signed.pkg","size":42,"browser_download_url":"https://github.com/apple/container/releases/download/1.6.0/container-1.6.0-installer-signed.pkg"}]}"#
+        let package = try XCTUnwrap(InstallerPackage.parse(release: Data(release.utf8)))
+        XCTAssertEqual(try JSONDecoder().decode(InstallerPackage.self, from: try JSONEncoder().encode(package)), package)
         // Image names given by the user (tag, commit) never end in a separator.
         XCTAssertTrue(ImageReference.isNewName("registry.example.com:5000/team/app:1.0"))
         XCTAssertFalse(ImageReference.isNewName("team/app:") || ImageReference.isNewName("team/") || ImageReference.isNewName("app@sha256:abc"))

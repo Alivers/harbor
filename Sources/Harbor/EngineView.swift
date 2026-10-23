@@ -248,16 +248,27 @@ private struct UpdateCard: View {
             RowIcon(systemName: "arrow.down.circle")
             VStack(alignment: .leading, spacing: 4) {
                 Text("Apple Container \(update.version) is available").font(.system(size: 13, weight: .semibold))
-                Text("You have \(store.installedVersion ?? "an older version"). " + (ReleaseVersion.managedByHomebrew(store.config.container)
-                     ? "Harbor updates it with Homebrew (brew upgrade container)."
-                     : "Harbor downloads Apple's signed installer; macOS Installer asks for your password, Harbor never sees it."))
+                Text("You have \(store.installedVersion ?? "an older version"). " + plan.text)
                     .font(.system(size: 11)).foregroundStyle(Color.harborSub).fixedSize(horizontal: false, vertical: true)
                 Link("Release notes", destination: ReleaseVersion.notes(update.version)).font(.system(size: 11, weight: .medium))
             }
             Spacer(minLength: 0)
-            Button(busy ? "Updating…" : "Update…", action: start).buttonStyle(.borderedProminent).disabled(busy)
+            if plan.inPlace { Button(busy ? "Updating…" : "Update…", action: start).buttonStyle(.borderedProminent).disabled(busy) }
         }
         .card()
+    }
+    /// How the update happens, and whether Harbor does it in place. It leaves a new major version, which may need
+    /// its own upgrade path, and a CLI outside /usr/local, which Apple's package does not replace, to the person.
+    private var plan: (text: String, inPlace: Bool) {
+        let path = store.config.container
+        if let installed = store.installedVersion, ReleaseVersion.isMajorUpgrade(update.version, from: installed) {
+            return ("A new major version can need its own upgrade steps, so Harbor leaves it to you: read the release notes first.", false)
+        }
+        if ReleaseVersion.managedByHomebrew(path) { return ("Harbor updates it with Homebrew (brew upgrade container) once Homebrew offers it.", true) }
+        guard ReleaseVersion.installedByPackage(path) else {
+            return ("Apple's installer replaces \(ReleaseVersion.packagePath), not the copy Harbor uses, so update that copy yourself.", false)
+        }
+        return ("Harbor downloads Apple's signed installer; macOS Installer asks for your password, Harbor never sees it.", true)
     }
 }
 
@@ -297,6 +308,7 @@ struct SettingsView: View {
                 Toggle("Show Harbor in the menu bar", isOn: $showMenuBarExtra)
                 Toggle("Notify when a job finishes in the background", isOn: $notify)
                 Toggle("Check for new Apple Container releases", isOn: $checkUpdates)
+                    .onChange(of: checkUpdates) { _, enabled in store.updateCheckChanged(enabled) }
             } header: { Text("General") } footer: {
                 Text("The menu bar shows the engine and running containers even when the window is closed. Notifications cover jobs that fail or take longer than a few seconds. The release check asks GitHub once a day; nothing is installed until you choose Update on the Engine page.")
             }
