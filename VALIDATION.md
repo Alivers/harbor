@@ -96,6 +96,15 @@ From a usability review (built by CI, not yet looked at on a Mac):
 - The Engine page hides the setup guide once the engine runs and has containers, and shows four everyday system commands (status, logs, disk usage, version), with the rest in its … menu.
 - The sidebar no longer shows the image count, which read as a notification; only running containers are counted.
 
+## Update: Apple Container 1.6.0
+
+Date: 2026-10-23. Apple Container 1.6.0 was released on 2026-10-19. Checked on Linux against the upstream source (tags 1.5.0 and 1.6.0), not against a running 1.6.0 CLI:
+
+- **What changed upstream, read from the diff:** `build` and `builder` moved into CLI plugins; `container commit` is new; `--network` takes repeated `alias=` properties, stored as `aliases` in the attachment's options; `k8s create` gained `--workers` and `--cni NONE`, `k8s load-image` gained `--node`, and `k8s list` prints one row per node with the cluster in the first column; `image list` prints the images it can read and then exits nonzero when it skipped any; `machine create` gained `--user`, `--uid`, `--gid` and `--home`. The build flags the form uses did not change. The release also fixes two security issues (image pulls by digest, and `build` reading outside its context).
+- **Plugin help:** a small program on the same swift-argument-parser version (1.8.2) as 1.6.0 confirmed that `container build --help` and `container builder start --help` reach the CLI's plugin dispatcher with `--help` intact; the dispatcher replaces the first argument with the plugin's path, so the plugin prints `USAGE: build …` and `USAGE: builder start …`. `NativeHelp` accepts those, as it did for `k8s`. Through the dispatcher this needs the services running, which was not exercised.
+- **All 31 core checks pass** on Linux (Swift 6.1, `swift:6.1-noble`). The new checks cover plugin help, the 68-entry catalog, DNS aliases in 1.6.0 JSON and in the run form's `--network` value (including rejecting `*`, commas and spaces), partial image listings, `commit` arguments, the Create Cluster form, clusters and nodes from a `k8s list` table, `load-image --node` arguments, version parsing and comparison, and telling a Homebrew CLI (a link into the Cellar) from the installer's.
+- **Not exercised:** none of the new UI has been looked at, and none of it has run against Apple Container: commit, export, image inspect, DNS aliases resolving, cluster creation with workers, loading images into nodes, the update check against GitHub, and the update itself (stopping the engine, `brew upgrade container` or Installer, waiting for the new version, starting again). `check-native-catalog.py` now reads plugin help from the plugin executables but has not been run against a 1.6.0 install.
+
 ## Not yet verified
 
 Apple Container / Socktainer are not formally installed on the test machine, so none of the following count as completed end-to-end tests:
