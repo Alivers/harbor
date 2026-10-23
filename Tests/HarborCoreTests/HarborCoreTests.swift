@@ -60,6 +60,8 @@ final class HarborCoreTests {
         XCTAssertEqual(Set(NativeOperation.all.map(\.id)).count, NativeOperation.all.count)
         XCTAssertEqual(NativeOperation.groups.first, "Containers")
         XCTAssertEqual(NativeOperation.operations(in: "Kubernetes").count, 5)
+        XCTAssertEqual(NativeOperation.all.count, 68)
+        XCTAssertEqual(NativeOperation.named("commit")?.group, "Containers")
         // sudo is only ever typed into Terminal, never run by the app.
         XCTAssertEqual(NativeOperation.all.filter(\.admin).map(\.id), ["system dns create", "system dns delete"])
         XCTAssertTrue(NativeOperation.all.filter(\.admin).allSatisfy(\.terminal))
@@ -68,6 +70,12 @@ final class HarborCoreTests {
         XCTAssertTrue(NativeHelp.matches("USAGE: container volume create [options]", path: ["volume", "create"]))
         XCTAssertTrue(NativeHelp.matches("USAGE: k8s create [options]", path: ["k8s", "create"]))
         XCTAssertEqual(NativeHelp.matches("USAGE: container [--debug] <subcommand>", path: ["volume", "create"]), false)
+        // 1.6.0 moved build and builder into plugins; 1.5.0 printed the dispatcher's name.
+        XCTAssertTrue(NativeHelp.matches("USAGE: build [<options>] [<context-dir>]", path: ["build"]))
+        XCTAssertTrue(NativeHelp.matches("USAGE: container build [<options>] [<context-dir>]", path: ["build"]))
+        XCTAssertTrue(NativeHelp.matches("USAGE: builder start [--cpus <cpus>]", path: ["builder", "start"]))
+        XCTAssertFalse(NativeHelp.matches("USAGE: builder <subcommand>", path: ["builder", "start"]))
+        XCTAssertFalse(NativeHelp.matches("USAGE: volume create", path: ["volume", "create"]))
     }
     func testDockerAlwaysTargetsExplicitSocket() {
         let config = RuntimeConfig(docker: "/bin/docker", container: "/bin/container", socktainer: "/bin/socktainer", socket: "/tmp/harbor socket")
@@ -262,6 +270,96 @@ final class HarborCoreTests {
         XCTAssertEqual(JSONText.pretty(#"{"b":1,"a":[true]}"#), "{\n  \"a\" : [\n    true\n  ],\n  \"b\" : 1\n}")
         XCTAssertEqual(JSONText.pretty("not json"), "not json")
     }
+    func testContainerFeaturesFrom160() throws {
+        // 1.6.0 keeps DNS aliases with the attachment's options.
+        let element = #"{"configuration":{"id":"gateway","image":{"reference":"nginx:latest"},"networks":[{"network":"default","options":{"aliases":["api.test",".gateway.test"],"hostname":"gateway.test."}}]},"status":{"networks":[{"hostname":"gateway.test.","ipv4Address":"192.168.64.5/24","ipv4Gateway":"192.168.64.1","network":"default"}],"state":"running"}}"#
+        let network = try XCTUnwrap(try NativeParser.containers("[" + element + "]")[0].details?.networks.first)
+        XCTAssertEqual(network.aliases, ["api.test", ".gateway.test"]); XCTAssertEqual(network.address, "192.168.64.5")
+        // Aliases ride on --network, on the default network when none is chosen.
+        var options = RunOptions(image: "nginx:latest"); options.aliases = ["api.test", " .gateway.test ", ""]
+        let args = try options.arguments()
+        XCTAssertEqual(zip(args, args.dropFirst()).first { $0.0 == "--network" }?.1, "default,alias=api.test,alias=.gateway.test")
+        options.network = "dev-net"; XCTAssertTrue(try options.arguments().contains("dev-net,alias=api.test,alias=.gateway.test"))
+        options.aliases = []; XCTAssertTrue(try options.arguments().contains("dev-net"))
+        XCTAssertFalse(try RunOptions(image: "nginx").arguments().contains("--network"))
+        for bad in ["*.gateway.test", "api.test,mac=02:42:ac:11:00:02", "a b", "..test", "api..test", "-api.test", "_svc.test", "svc_.test", String(repeating: "a", count: 64) + ".test"] {
+            options.aliases = [bad]; XCTAssertNotNil(options.problem)
+        }
+        options.aliases = Array(repeating: "api.test", count: RunOptions.maxAliases + 1); XCTAssertNotNil(options.problem)
+        options.aliases = ["api", "web.test.", "svc_a.test", String(repeating: "a", count: 63) + ".test"]; XCTAssertNil(options.problem)
+        // image list: 1.6.0 prints what it can read, then exits nonzero.
+        let listing = #"[{"configuration":{"name":"nginx:alpine","descriptor":{"digest":"sha256:a"}},"variants":[]}]"#
+        let partial = try NativeParser.imageListing(output: listing, errorOutput: "Error: failed to read 1 image(s)\n", status: 1)
+        XCTAssertEqual(partial.rows.map(\.reference), ["nginx:alpine"]); XCTAssertEqual(partial.skipped, "Error: failed to read 1 image(s)")
+        XCTAssertNil(try NativeParser.imageListing(output: listing, errorOutput: "", status: 0).skipped)
+        XCTAssertThrowsError(try NativeParser.imageListing(output: "", errorOutput: "XPC connection error", status: 1))
+        // commit
+        XCTAssertEqual(try ContainerCommit.arguments(container: "web", reference: "local/web:v2"), ["commit", "web", "local/web:v2"])
+        XCTAssertEqual(ContainerCommit.suggestedReference(for: "Web"), "local/web:snapshot")
+        for bad in ["", "local/web:", "--force", "a b", "web@sha256:abc"] { XCTAssertThrowsError(try ContainerCommit.arguments(container: "web", reference: bad)) }
+    }
+    func testKubernetesClusters() throws {
+        var options = ClusterOptions()
+        XCTAssertEqual(try options.arguments(), ["k8s", "create", "--name", "k8s-dev"])
+        options.name = "lab"; options.workers = 2; options.cpus = 4; options.memory = "8g"; options.network = .none; options.removeWhenStopped = true
+        XCTAssertEqual(try options.arguments(), ["k8s", "create", "--name", "lab", "--workers", "2", "--cpus", "4", "--memory", "8g", "--cni", "NONE", "--rm"])
+        options.network = .manifest; options.manifest = "/does/not/exist.yaml"; XCTAssertNotNil(options.problem)
+        options.manifest = "relative.yaml"; XCTAssertNotNil(options.problem)
+        options.network = .bundled; options.nodeImage = "kindest/node:v1.35.5"
+        XCTAssertEqual(Array(try options.arguments().suffix(3)), ["--node-image", "kindest/node:v1.35.5", "--rm"])
+        options.workers = ClusterOptions.maxWorkers + 1; XCTAssertNotNil(options.problem); options.workers = 0
+        options.memory = "lots"; XCTAssertNotNil(options.problem); options.memory = ""
+        options.name = "-x"; XCTAssertThrowsError(try options.arguments())
+        // `k8s list` prints one row per node; clusters keep their nodes in order.
+        let listing = """
+        CLUSTER  NODE              ROLE           STATE    CPUS  MEMORY   ADDR           PORTS
+        k8s-dev  k8s-dev           control-plane  running  2     4096 MB  192.168.64.10  6443->6443
+        k8s-dev  k8s-dev-worker-1  worker         running  2     4096 MB  192.168.64.11
+        lab      lab               control-plane  stopped  2     4096 MB
+        """
+        XCTAssertEqual(KubernetesClusters.parse(listing), [.init(name: "k8s-dev", nodes: ["k8s-dev", "k8s-dev-worker-1"]), .init(name: "lab", nodes: ["lab"])])
+        XCTAssertEqual(KubernetesClusters.parse("No clusters found."), [])
+        XCTAssertEqual(try KubernetesClusters.loadArguments(image: "local/app:dev", cluster: "k8s-dev"), ["k8s", "load-image", "--name", "k8s-dev", "local/app:dev"])
+        XCTAssertEqual(try KubernetesClusters.loadArguments(image: "app", cluster: "k8s-dev", nodes: ["k8s-dev-worker-1"]),
+                       ["k8s", "load-image", "--name", "k8s-dev", "--node", "k8s-dev-worker-1", "app"])
+        XCTAssertThrowsError(try KubernetesClusters.loadArguments(image: "--all", cluster: "k8s-dev"))
+    }
+    func testReleaseVersions() throws {
+        XCTAssertEqual(ReleaseVersion.cli("container CLI version 1.6.0 (build: release, commit: ca4884f)"), "1.6.0")
+        XCTAssertEqual(ReleaseVersion.cli("container CLI version v1.10.2 (build: debug)"), "1.10.2")
+        XCTAssertNil(ReleaseVersion.cli("command not found"))
+        XCTAssertTrue(ReleaseVersion.isNewer("1.6.0", than: "1.5.0")); XCTAssertTrue(ReleaseVersion.isNewer("1.10.0", than: "1.9.2"))
+        XCTAssertTrue(ReleaseVersion.isNewer("1.6.1", than: "1.6")); XCTAssertTrue(ReleaseVersion.isNewer("v2.0.0", than: "1.99"))
+        XCTAssertFalse(ReleaseVersion.isNewer("1.6.0", than: "1.6.0")); XCTAssertFalse(ReleaseVersion.isNewer("1.6", than: "1.6.0"))
+        XCTAssertFalse(ReleaseVersion.isNewer("1.5.0", than: "1.6.0"))
+        XCTAssertEqual(ReleaseVersion.notes("1.6.0").absoluteString, "https://github.com/apple/container/releases/tag/1.6.0")
+        // Homebrew links its bin into the Cellar; the official installer puts a plain file in /usr/local/bin.
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("harbor-brew-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cellar = root.appendingPathComponent("Cellar/container/1.6.0/bin"), bin = root.appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: cellar, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        _ = FileManager.default.createFile(atPath: cellar.appendingPathComponent("container").path, contents: Data())
+        _ = FileManager.default.createFile(atPath: bin.appendingPathComponent("plain").path, contents: Data())
+        try FileManager.default.createSymbolicLink(atPath: bin.appendingPathComponent("container").path, withDestinationPath: "../Cellar/container/1.6.0/bin/container")
+        XCTAssertTrue(ReleaseVersion.managedByHomebrew(bin.appendingPathComponent("container").path))
+        XCTAssertFalse(ReleaseVersion.managedByHomebrew(bin.appendingPathComponent("plain").path))
+        // Apple's package replaces only /usr/local/bin/container; a copy elsewhere stays as it is.
+        XCTAssertTrue(ReleaseVersion.installedByPackage("/usr/local/bin/container") && ReleaseVersion.installedByPackage("/usr/local/bin/../bin/container"))
+        XCTAssertFalse(ReleaseVersion.installedByPackage("/opt/homebrew/bin/container") || ReleaseVersion.installedByPackage(bin.appendingPathComponent("plain").path))
+        // Homebrew can lag a release; its formula says what `brew upgrade` would install.
+        XCTAssertEqual(ReleaseVersion.homebrewStable(#"{"formulae":[{"name":"container","versions":{"stable":"1.5.0","head":null,"bottle":true}}],"casks":[]}"#), "1.5.0")
+        XCTAssertNil(ReleaseVersion.homebrewStable(#"{"formulae":[],"casks":[]}"#)); XCTAssertNil(ReleaseVersion.homebrewStable("Error: No available formula"))
+        XCTAssertTrue(ReleaseVersion.isMajorUpgrade("2.0.0", from: "1.6.0") && ReleaseVersion.isMajorUpgrade("1.0.0", from: "0.12.1"))
+        XCTAssertFalse(ReleaseVersion.isMajorUpgrade("1.7.0", from: "1.6.0") || ReleaseVersion.isMajorUpgrade("1.6.0", from: "1.6.0"))
+        // The last release found survives a relaunch, so the card does not wait a day to come back.
+        let release = #"{"tag_name":"1.6.0","assets":[{"name":"container-1.6.0-installer-signed.pkg","size":42,"browser_download_url":"https://github.com/apple/container/releases/download/1.6.0/container-1.6.0-installer-signed.pkg"}]}"#
+        let package = try XCTUnwrap(InstallerPackage.parse(release: Data(release.utf8)))
+        XCTAssertEqual(try JSONDecoder().decode(InstallerPackage.self, from: try JSONEncoder().encode(package)), package)
+        // Image names given by the user (tag, commit) never end in a separator.
+        XCTAssertTrue(ImageReference.isNewName("registry.example.com:5000/team/app:1.0"))
+        XCTAssertFalse(ImageReference.isNewName("team/app:") || ImageReference.isNewName("team/") || ImageReference.isNewName("app@sha256:abc"))
+    }
     func testShellQuoteRoundTrip() async throws {
         let input = "a ' quote \" $HOME `false` $(false)\nsecond line"
         let result = try await Runner.checked(Command("/bin/sh", ["-c", "printf %s " + Command.quote(input)]))
@@ -384,6 +482,9 @@ func XCTAssertThrowsError<T>(_ expression: @autoclosure () throws -> T) {
         suite.testComposeActionsTargetServices()
         try suite.testContainerFilesAndDockerImport()
         suite.testTextTablesAndResourceHelpers()
+        try suite.testContainerFeaturesFrom160()
+        try suite.testKubernetesClusters()
+        try suite.testReleaseVersions()
         try await suite.testShellQuoteRoundTrip()
         suite.testInstallerPackageComesFromOfficialReleases()
         try await suite.testTerminalScriptQuotesEveryPart()
@@ -394,6 +495,6 @@ func XCTAssertThrowsError<T>(_ expression: @autoclosure () throws -> T) {
         try await suite.testNonzeroExitIsReported()
         try await suite.testTimeoutTerminatesProcess()
         try await suite.testCancellationTerminatesProcess()
-        print("PASS: 28 checks — native JSON, registry ports, image references, native isolation, tokenizer, command catalog, scoped help, Docker socket isolation, Compose paths, Compose file order, JSON, literal arguments, 1.5.0 details and stats, run form flags, build/network/volume forms, Compose services, container files and Docker import, text tables, shell quoting, installer source, Terminal script, large output, streaming output, output limit, raised output limit, errors, timeout, cancellation")
+        print("PASS: 31 checks — native JSON, registry ports, image references, native isolation, tokenizer, command catalog, scoped help, Docker socket isolation, Compose paths, Compose file order, JSON, literal arguments, 1.5.0 details and stats, run form flags, build/network/volume forms, Compose services, container files and Docker import, text tables, 1.6.0 aliases, partial image lists and commit, Kubernetes clusters, release versions, shell quoting, installer source, Terminal script, large output, streaming output, output limit, raised output limit, errors, timeout, cancellation")
     }
 }

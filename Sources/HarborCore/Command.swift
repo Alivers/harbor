@@ -81,7 +81,8 @@ public enum Runner {
                 process.terminate()
                 for _ in 0..<10 where process.isRunning { usleep(50_000) }
                 if process.isRunning { kill(process.processIdentifier, SIGKILL) }
-                process.waitUntilExit()
+                // Polled rather than waitUntilExit, which on macOS 27 can block forever in this thread's run loop.
+                while process.isRunning { usleep(10_000) }
                 throw HarborError.message(reason)
             }
             func publish(final: Bool) throws {
@@ -98,7 +99,6 @@ public enum Runner {
                 if Date() >= nextPublish { try publish(final: false); nextPublish = Date().addingTimeInterval(0.25) }
                 try? await Task.sleep(for: .milliseconds(50))
             }
-            process.waitUntilExit()
             if try max(out.size(), err.size()) > outputLimit { throw HarborError.message(tooLarge) }
             try publish(final: true)
             return try CommandResult(output: out.text(), errorOutput: err.text(), status: process.terminationStatus)

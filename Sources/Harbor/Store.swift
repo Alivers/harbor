@@ -23,6 +23,7 @@ struct NativeRequest: Identifiable {
 enum SheetRoute: Identifiable {
     case run(RunOptions), pull, operation(NativeRequest), output(Job)
     case build(BuildOptions), tag(ImageRow), createNetwork, createVolume, importImages
+    case commit(ContainerRow), createCluster, loadIntoCluster(ImageRow)
     var id: String { switch self {
     case .run: "run"
     case .pull: "pull"
@@ -33,6 +34,9 @@ enum SheetRoute: Identifiable {
     case .createNetwork: "network"
     case .createVolume: "volume"
     case .importImages: "import"
+    case .commit(let container): "commit " + container.id
+    case .createCluster: "cluster"
+    case .loadIntoCluster(let image): "load " + image.reference
     } }
 }
 
@@ -45,6 +49,11 @@ enum Preference {
     /// A `BackdropStyle` raw value, and the custom picture's path.
     static let backdrop = "backdropStyle"
     static let backdropPicture = "backdropPicture"
+    /// Whether Harbor asks GitHub once a day for the latest Apple Container release.
+    static let updateCheck = "checkForUpdates"
+    /// When that check last asked GitHub and what it found, so it stays daily across launches.
+    static let lastUpdateCheck = "lastUpdateCheck"
+    static let latestRelease = "latestRelease"
     static func enabled(_ key: String) -> Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
 }
 
@@ -73,6 +82,8 @@ enum Preference {
     private(set) var containers: [ContainerRow] = []
     private(set) var images: [ImageRow] = []
     private(set) var imageError: String?
+    /// What the CLI said about images it skipped while listing the rest (1.6.0 lists what it can read).
+    private(set) var imageWarning: String?
     /// Why the last container list could not be read while the engine answered; the previous list stays shown.
     private(set) var containerError: String?
     /// Raw CLI listings of the resource pages, keyed by their arguments. A page shows its last read at once
@@ -82,6 +93,10 @@ enum Preference {
     private(set) var services: [ComposeProject.ID: Result<[ContainerRow], Error>] = [:]
     private(set) var dockerConnected = false
     private(set) var bridgeOwned = false
+    /// The installed CLI's version, from `container --version`; nil until read or when it cannot be read.
+    private(set) var installedVersion: String?
+    /// The newest release on GitHub, when the update check is on and has run (set by `checkForUpdate`).
+    var latestRelease: InstallerPackage? = UserDefaults.standard.data(forKey: Preference.latestRelease).flatMap { try? JSONDecoder().decode(InstallerPackage.self, from: $0) }
     /// Newest first. Jobs run concurrently; only jobs on the same `subject` exclude each other.
     private(set) var jobs: [Job] = []
     /// Bumped whenever a job finishes, so views showing raw CLI listings know to read them again.
@@ -97,6 +112,9 @@ enum Preference {
     @ObservationIgnored private var lastBackgroundRead = Date.distantPast
     @ObservationIgnored private var refreshQueued = false
     @ObservationIgnored private var helpCache: [String: String] = [:]
+    /// The CLI path `installedVersion` belongs to.
+    @ObservationIgnored var versionPath = ""
+    @ObservationIgnored var lastUpdateCheck = UserDefaults.standard.object(forKey: Preference.lastUpdateCheck) as? Date ?? .distantPast
     @ObservationIgnored private var bridge: Process?
     @ObservationIgnored private var bridgeLog: FileHandle?
     @ObservationIgnored private var terminationObserver: NSObjectProtocol?
@@ -133,7 +151,8 @@ enum Preference {
     /// bar extra, and only every 30 s; otherwise it waits until Harbor is active again.
     private func poll() async {
         while !Task.isCancelled {
-            if NSApplication.shared.isActive { await refresh() }
+            // The release check runs beside the poll: a slow or unreachable GitHub must not hold up the state reads.
+            if NSApplication.shared.isActive { await refresh(); Task { await checkForUpdate() } }
             else if Preference.enabled(Preference.menuBarExtra), Date().timeIntervalSince(lastBackgroundRead) >= 30 {
                 lastBackgroundRead = Date(); await refresh()
             }
@@ -151,6 +170,7 @@ enum Preference {
         if !FileManager.default.isExecutableFile(atPath: config.container), let found = RuntimeConfig.locate("container") { adoptCLI(found) }
         let snapshot = config
         guard FileManager.default.isExecutableFile(atPath: snapshot.container) else { return apply(.missingCLI, snapshot) }
+        if versionPath != snapshot.container { await refreshVersion() }
         let list = snapshot.nativeCommand(["list", "--all", "--format", "json"])
         let output: String
         do { output = try await Runner.checked(list, timeout: 10) }
@@ -165,15 +185,18 @@ enum Preference {
         // The engine answered, so it runs. A list or image read that fails keeps what was shown before.
         var rows = containers, listFailure: String?
         do { rows = try NativeParser.containers(output) } catch { listFailure = error.localizedDescription }
-        var imageRows = images, imageFailure: String?
-        do { imageRows = try NativeParser.images(try await Runner.checked(snapshot.nativeCommand(["image", "list", "--format", "json"]), timeout: 10)) }
-        catch { imageFailure = error.localizedDescription }
-        apply(.running, snapshot, containers: rows, containerError: listFailure, images: imageRows, imageError: imageFailure)
+        var imageRows = images, imageFailure: String?, skipped: String?
+        do {
+            let result = try await Runner.run(snapshot.nativeCommand(["image", "list", "--format", "json"]), timeout: 10)
+            let listing = try NativeParser.imageListing(output: result.output, errorOutput: result.errorOutput, status: result.status)
+            imageRows = listing.rows; skipped = listing.skipped
+        } catch { imageFailure = error.localizedDescription }
+        apply(.running, snapshot, containers: rows, containerError: listFailure, images: imageRows, imageError: imageFailure, imageWarning: skipped)
     }
     /// Publishes a read unless the settings changed meanwhile. Unchanged values are not reassigned,
     /// so the 6-second poll does not redraw views that have nothing new to show.
     private func apply(_ state: EngineState, _ snapshot: RuntimeConfig, containers rows: [ContainerRow] = [], containerError listFailure: String? = nil,
-                       images imageRows: [ImageRow] = [], imageError failure: String? = nil) {
+                       images imageRows: [ImageRow] = [], imageError failure: String? = nil, imageWarning warning: String? = nil) {
         guard config == snapshot else { return }
         // Read what the other pages show as soon as the engine is up, so none of them opens empty.
         if state == .running && engine != .running { Task { await prefetchPages() } }
@@ -182,11 +205,25 @@ enum Preference {
         if containerError != listFailure { containerError = listFailure }
         if images != imageRows { images = imageRows }
         if imageError != failure { imageError = failure }
+        // A failed read keeps the previous rows, and with them the previous warning.
+        if failure == nil, imageWarning != warning { imageWarning = warning }
     }
     /// Points Harbor at a newly found CLI.
     func adoptCLI(_ path: String) {
         guard config.container != path else { return }
         config.container = path; save(); helpCache = [:]
+    }
+    /// Reads the CLI's version; `--version` answers whether or not the engine runs. Read when the path changes and
+    /// whenever the engine comes up, since updating Apple Container means restarting it.
+    func refreshVersion() async {
+        let path = config.container
+        versionPath = path
+        let output = try? await Runner.checked(config.nativeCommand(["--version"]), timeout: 10)
+        let version = output.flatMap(ReleaseVersion.cli)
+        guard config.container == path, installedVersion != version else { return }
+        // The CLI changed in place (an update), so its help may list new options.
+        if installedVersion != nil { helpCache = [:] }
+        installedVersion = version
     }
     func read(_ arguments: [String], timeout: TimeInterval = 20) async throws -> String {
         try await Runner.checked(config.nativeCommand(arguments), timeout: timeout)
@@ -202,6 +239,7 @@ enum Preference {
     }
     /// One quiet pass over every page's data; failures are left for the page itself to show.
     private func prefetchPages() async {
+        await refreshVersion()
         for page in Page.allCases where !page.listing.isEmpty { try? await readListing(page.listing) }
         await refreshCompatibility()
     }
@@ -325,6 +363,18 @@ enum Preference {
         let arguments = try options.arguments()
         perform("Run \(options.image.trimmingCharacters(in: .whitespaces))", command: config.nativeCommand(arguments), timeout: 1800)
     }
+    /// A new image from the container's filesystem (`container commit`, 1.6.0).
+    func commit(_ container: ContainerRow, as reference: String) throws {
+        let arguments = try ContainerCommit.arguments(container: container.id, reference: reference)
+        perform("Commit \(container.name) to \(reference)", command: config.nativeCommand(arguments), subject: container.id, timeout: 3600)
+    }
+    /// The container's filesystem as a tar archive.
+    func export(_ container: ContainerRow) {
+        let panel = NSSavePanel(); panel.title = "Export \(container.name)’s Filesystem"
+        panel.nameFieldStringValue = container.name + ".tar"; panel.allowedContentTypes = [.tarArchive]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        perform("Export \(container.name)", command: config.nativeCommand(["export", "--output", url.path, container.id]), subject: container.id, timeout: 3600)
+    }
     func pull(_ reference: String) { perform("Pull \(reference)", command: config.nativeCommand(["image", "pull", reference]), subject: "image " + reference, timeout: 1800) }
     func delete(_ image: ImageRow) { perform("Delete \(image.reference)", command: config.nativeCommand(["image", "delete", image.reference]), subject: "image " + image.reference) }
     func build(_ options: BuildOptions) throws {
@@ -353,6 +403,13 @@ enum Preference {
     func loadImages(from archive: URL) {
         perform("Load \(archive.lastPathComponent)", command: config.nativeCommand(DockerImport.loadArguments(archive.path)), timeout: 3600)
     }
+    /// The image's configuration and manifests, as indented JSON in the output sheet.
+    func inspect(_ image: ImageRow) {
+        let snapshot = config
+        run("Inspect \(image.reference)", showOutput: true) { job in
+            job.output = JSONText.pretty(try await Runner.checked(snapshot.nativeCommand(["image", "inspect", image.reference]), timeout: 30))
+        }
+    }
     func pruneImages(all: Bool) {
         perform(all ? "Remove unused images" : "Remove dangling images", command: config.nativeCommand(["image", "prune"] + (all ? ["--all"] : [])), showOutput: true, timeout: 600)
     }
@@ -361,6 +418,14 @@ enum Preference {
     }
     func createVolume(_ options: VolumeOptions) throws {
         perform("Create volume \(options.name)", command: config.nativeCommand(try options.arguments()), subject: "volume " + options.name)
+    }
+    /// Pulls the node image and boots every node, which takes minutes; the output streams into the job.
+    func createCluster(_ options: ClusterOptions) throws {
+        perform("Create cluster \(options.name)", command: config.nativeCommand(try options.arguments()), subject: "cluster " + options.name, timeout: 3600)
+    }
+    func load(_ image: ImageRow, into cluster: String, nodes: [String]) throws {
+        let arguments = try KubernetesClusters.loadArguments(image: image.reference, cluster: cluster, nodes: nodes)
+        perform("Load \(image.reference) into \(cluster)", command: config.nativeCommand(arguments), subject: "cluster " + cluster, timeout: 1800)
     }
     /// Names from a `--quiet` listing (`network list -q`, `volume list -q`); empty when the read fails.
     func names(_ listing: [String]) async -> [String] {
