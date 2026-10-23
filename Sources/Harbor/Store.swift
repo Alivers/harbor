@@ -148,7 +148,8 @@ enum Preference {
     /// bar extra, and only every 30 s; otherwise it waits until Harbor is active again.
     private func poll() async {
         while !Task.isCancelled {
-            if NSApplication.shared.isActive { await refresh(); await checkForUpdate() }
+            // The release check runs beside the poll: a slow or unreachable GitHub must not hold up the state reads.
+            if NSApplication.shared.isActive { await refresh(); Task { await checkForUpdate() } }
             else if Preference.enabled(Preference.menuBarExtra), Date().timeIntervalSince(lastBackgroundRead) >= 30 {
                 lastBackgroundRead = Date(); await refresh()
             }

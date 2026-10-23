@@ -282,11 +282,11 @@ final class HarborCoreTests {
         options.network = "dev-net"; XCTAssertTrue(try options.arguments().contains("dev-net,alias=api.test,alias=.gateway.test"))
         options.aliases = []; XCTAssertTrue(try options.arguments().contains("dev-net"))
         XCTAssertFalse(try RunOptions(image: "nginx").arguments().contains("--network"))
-        for bad in ["*.gateway.test", "api.test,mac=02:42:ac:11:00:02", "a b", "..test", "api..test", "-api.test"] {
+        for bad in ["*.gateway.test", "api.test,mac=02:42:ac:11:00:02", "a b", "..test", "api..test", "-api.test", "_svc.test", "svc_.test", String(repeating: "a", count: 64) + ".test"] {
             options.aliases = [bad]; XCTAssertNotNil(options.problem)
         }
         options.aliases = Array(repeating: "api.test", count: RunOptions.maxAliases + 1); XCTAssertNotNil(options.problem)
-        options.aliases = ["api", "web.test.", "_svc.test"]; XCTAssertNil(options.problem)
+        options.aliases = ["api", "web.test.", "svc_a.test", String(repeating: "a", count: 63) + ".test"]; XCTAssertNil(options.problem)
         // image list: 1.6.0 prints what it can read, then exits nonzero.
         let listing = #"[{"configuration":{"name":"nginx:alpine","descriptor":{"digest":"sha256:a"}},"variants":[]}]"#
         let partial = try NativeParser.imageListing(output: listing, errorOutput: "Error: failed to read 1 image(s)\n", status: 1)

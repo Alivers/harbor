@@ -64,14 +64,17 @@ struct ImagesView: View {
         } message: { image in Text("Uploads the image to \(image.repository.split(separator: "/").first.map(String.init) ?? "the registry"). Log in to the registry first if it needs credentials.") }
     }
 
+    /// Why the list is empty when it should not be: a failed read, or 1.6.0 skipping every image it could not read.
+    private var readProblem: String? { store.imageError ?? store.imageWarning }
+
     @ViewBuilder private var content: some View {
         if !store.engine.isRunning {
             EngineSetupView()
         } else if store.images.isEmpty {
             ContentUnavailableView {
-                Label(store.imageError == nil ? "No Images" : "Could Not Read Images", systemImage: "square.3.layers.3d")
+                Label(readProblem == nil ? "No Images" : "Could Not Read Images", systemImage: "square.3.layers.3d")
             } description: {
-                Text(store.imageError ?? "Pull an image such as nginx:alpine or your project's base image.")
+                Text(readProblem ?? "Pull an image such as nginx:alpine or your project's base image.")
             } actions: {
                 Button("Pull Image…") { store.present(.pull) }.buttonStyle(.borderedProminent)
             }

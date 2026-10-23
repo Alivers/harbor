@@ -219,8 +219,9 @@ public struct RunOptions: Equatable, Sendable {
     }
     private var trimmedImage: String { image.trimmingCharacters(in: .whitespacesAndNewlines) }
     /// An exact DNS name or, with a leading dot, a whole subtree. No commas, which would end the `--network` property.
+    /// Labels follow the CLI's `DNSName`: they start and end with a letter or digit, `-` and `_` only inside, 63 at most.
     static func isAlias(_ text: String) -> Bool {
-        let label = "[A-Za-z0-9_]([A-Za-z0-9_-]*[A-Za-z0-9_])?"
+        let label = "[A-Za-z0-9]([A-Za-z0-9_-]{0,61}[A-Za-z0-9])?"
         return text.range(of: "^\\.?\(label)(\\.\(label))*\\.?$", options: .regularExpression) != nil
     }
     // Values are passed literally, so only surrounding whitespace is dropped (inner spaces in KEY=value survive).

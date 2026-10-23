@@ -68,7 +68,7 @@ struct RunContainerSheet: View {
                     Section {
                         EntryListEditor(entries: $aliases, placeholder: "api.test or .gateway.test", addTitle: "Add Alias")
                     } header: { Text("DNS Aliases") } footer: {
-                        Text("More names for this container on \(options.network.isEmpty ? "the default network" : options.network). A leading dot covers every name below it. They resolve once a DNS domain exists (Engine › … › Create DNS Domain).")
+                        Text("More names for this container on \(options.network.isEmpty ? "the default network" : options.network). Write full names like api.test; a leading dot covers every name below the container's own name or one of its exact aliases. They resolve on this Mac once their domain exists (Engine › … › Create DNS Domain).")
                     }
                 }
                 Section {

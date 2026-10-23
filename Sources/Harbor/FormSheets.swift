@@ -149,7 +149,7 @@ struct CommitContainerSheet: View {
             Text((container.running ? "The container keeps running; the CLI takes a snapshot of it first. " : "")
                  + "The image holds the container's own files; volumes and mounted folders are not part of it.")
                 .font(.callout).foregroundStyle(.secondary)
-            SheetFooter(problem: trimmed.isEmpty ? nil : ContainerCommit.problem(trimmed), action: "Commit") {
+            SheetFooter(problem: ContainerCommit.problem(trimmed), action: "Commit") {
                 guard (try? store.commit(container, as: trimmed)) != nil else { return }
                 dismiss()
             }
