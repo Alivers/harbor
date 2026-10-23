@@ -13,6 +13,7 @@ struct RunContainerSheet: View {
     @ViewState<[Entry]> private var environment: [Entry]
     @ViewState<[Entry]> private var volumes: [Entry]
     @ViewState<[Entry]> private var labels: [Entry]
+    @ViewState<[Entry]> private var aliases: [Entry]
     /// Optional `container run` flags the local help lists; the form offers only those.
     @ViewState<Set<String>> private var supported: Set<String> = []
     @ViewState<[String]> private var networks: [String] = []
@@ -25,11 +26,12 @@ struct RunContainerSheet: View {
         _environment = ViewState(initialValue: options.environment.map { Entry(text: $0) })
         _volumes = ViewState(initialValue: options.volumes.map { Entry(text: $0) })
         _labels = ViewState(initialValue: options.labels.map { Entry(text: $0) })
+        _aliases = ViewState(initialValue: options.aliases.map { Entry(text: $0) })
     }
     private var resolved: RunOptions {
         var result = options
         result.ports = ports.map(\.text); result.environment = environment.map(\.text); result.volumes = volumes.map(\.text)
-        result.labels = labels.map(\.text)
+        result.labels = labels.map(\.text); result.aliases = aliases.map(\.text)
         return result
     }
     private func offers(_ flag: String) -> Bool { supported.contains(flag) }
@@ -62,6 +64,13 @@ struct RunContainerSheet: View {
                         }
                     }
                 } header: { Text("Container") }
+                if offers("alias=") {
+                    Section {
+                        EntryListEditor(entries: $aliases, placeholder: "api.test or .gateway.test", addTitle: "Add Alias")
+                    } header: { Text("DNS Aliases") } footer: {
+                        Text("More names for this container on \(options.network.isEmpty ? "the default network" : options.network). A leading dot covers every name below it. They resolve once a DNS domain exists (Engine › … › Create DNS Domain).")
+                    }
+                }
                 Section {
                     EntryListEditor(entries: $ports, placeholder: "127.0.0.1:8080:80", addTitle: "Add Port")
                 } header: { Text("Published Ports") } footer: { Text("Host port, then container port. Prefix 127.0.0.1: to keep it on this Mac.") }

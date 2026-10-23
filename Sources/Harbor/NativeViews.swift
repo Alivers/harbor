@@ -20,8 +20,8 @@ extension Page {
     default: []
     } }
     var note: String? { switch self {
-    case .kubernetes: "Kubernetes is an experimental plugin. Creating a cluster pulls node images and merges ~/.kube/config. There is no k8s start; Harbor never creates clusters on its own."
-    case .machines: "Machine creation controls the home directory mount. The example uses --home-mount none; choose read-only or read-write sharing as needed."
+    case .kubernetes: "Kubernetes is an experimental plugin. Creating a cluster pulls node images and merges ~/.kube/config. There is no k8s start; Harbor never creates clusters on its own. To use a local image in a cluster, right-click it on the Images page."
+    case .machines: "A machine is much less isolated than a container: it mounts your home folder read-write by default, can use your SSH agent, runs with every Linux capability and gives its user passwordless sudo. Create machines only from images you trust. The example uses --home-mount none."
     default: nil
     } }
 }
@@ -32,6 +32,7 @@ extension Page {
         switch self {
         case .networks: ("Create Network", .createNetwork)
         case .volumes: ("Create Volume", .createVolume)
+        case .kubernetes: ("Create Cluster", .createCluster)
         case .build: ("Build Image", .build(BuildOptions()))
         default: nil
         }
@@ -153,7 +154,8 @@ private struct ResourceTable: View {
                         Text(names.isEmpty ? "—" : names.joined(separator: ", ")).font(.system(size: 12)).foregroundStyle(Color.harborSub)
                             .lineLimit(1).help(names.joined(separator: ", "))
                     }
-                    if !actions.isEmpty, let name = table.rows[r].first, !name.isEmpty {
+                    // A cluster lists one row per node; its actions go on the first.
+                    if !actions.isEmpty, let name = table.rows[r].first, !name.isEmpty, r == 0 || table.rows[r - 1].first != name {
                         Menu {
                             ForEach(actions) { op in
                                 Button(op.title) { store.present(.operation(NativeRequest(op, arguments: op.example(naming: name)))) }

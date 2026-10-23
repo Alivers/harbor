@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 import HarborCore
 
 /// Shared bottom bar for form sheets: the first problem on the left, Cancel and the action on the right.
@@ -110,7 +111,7 @@ struct TagImageSheet: View {
     @ViewState<String> private var target = ""
     private var trimmed: String { target.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var problem: String? {
-        if !ImageReference.isValid(trimmed) || trimmed.hasSuffix(":") || trimmed.hasSuffix("/") { return "Enter a new name, like registry.example.com/team/app:1.0." }
+        if !ImageReference.isNewName(trimmed) { return "Enter a new name, like registry.example.com/team/app:1.0." }
         if trimmed == image.reference { return "The new name is the same as the current one." }
         return nil
     }
@@ -129,6 +130,159 @@ struct TagImageSheet: View {
         }
         .padding(24).frame(width: 520)
         .onAppear { target = image.repository + ":" }
+    }
+}
+
+/// Commit to Image: a new image from a container's root filesystem (`container commit`, 1.6.0).
+struct CommitContainerSheet: View {
+    @Environment(Store.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    let container: ContainerRow
+    @ViewState<String> private var reference = ""
+    private var trimmed: String { reference.trimmingCharacters(in: .whitespacesAndNewlines) }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label("Commit to Image", systemImage: "square.and.arrow.down.on.square").font(.title2.weight(.semibold))
+            LabeledContent("Container") { Text(container.name).font(.body.monospaced()).textSelection(.enabled) }
+            TextField("Image name", text: $reference, prompt: Text("local/web:snapshot"))
+                .textFieldStyle(.roundedBorder).font(.body.monospaced())
+            Text((container.running ? "The container keeps running; the CLI takes a snapshot of it first. " : "")
+                 + "The image holds the container's own files; volumes and mounted folders are not part of it.")
+                .font(.callout).foregroundStyle(.secondary)
+            SheetFooter(problem: trimmed.isEmpty ? nil : ContainerCommit.problem(trimmed), action: "Commit") {
+                guard (try? store.commit(container, as: trimmed)) != nil else { return }
+                dismiss()
+            }
+            .padding(-16)
+        }
+        .padding(24).frame(width: 520)
+        .onAppear { reference = ContainerCommit.suggestedReference(for: container.name) }
+    }
+}
+
+/// Create Cluster: a local Kubernetes cluster from the experimental `k8s` plugin, optionally with worker nodes.
+struct CreateClusterSheet: View {
+    @Environment(Store.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    @ViewState<ClusterOptions> private var options = ClusterOptions()
+    /// The local `k8s create --help`; options in `ClusterOptions.optionalFlags` show only when it lists them.
+    @ViewState<String?> private var help: String?
+    @ViewState<Bool> private var helpRead = false
+    private let cores = ProcessInfo.processInfo.activeProcessorCount
+    private func offers(_ flag: String) -> Bool { help?.contains(flag) ?? false }
+    var body: some View {
+        VStack(spacing: 0) {
+            Form {
+                Section {
+                    TextField("Name", text: $options.name, prompt: Text("k8s-dev"))
+                    if offers("--workers") {
+                        Stepper(options.workers == 0 ? "Workers: none" : "Workers: \(options.workers)", value: $options.workers, in: 0...ClusterOptions.maxWorkers)
+                    }
+                } header: { Text("Cluster") } footer: {
+                    if offers("--workers") {
+                        Text("With no workers, the control-plane node runs pods too. Workers are named \(options.name)-worker-1, -2… and get the same CPUs and memory.")
+                    }
+                }
+                Section {
+                    Stepper(options.cpus == 0 ? "CPUs: default" : "CPUs: \(options.cpus)", value: $options.cpus, in: 0...max(cores, 1))
+                    TextField("Memory", text: $options.memory, prompt: Text("Default, or e.g. 8g"))
+                } header: { Text("Each Node") } footer: { Text("By default a node gets a quarter of this Mac's cores and memory, at least 2 CPUs and 2 GB.") }
+                Section {
+                    Picker("Network plugin", selection: $options.network) {
+                        Text("Bundled (kindnet)").tag(ClusterOptions.Network.bundled)
+                        if offers("NONE") { Text("None").tag(ClusterOptions.Network.none) }
+                        Text("From a Manifest File").tag(ClusterOptions.Network.manifest)
+                    }
+                    if options.network == .manifest {
+                        LabeledContent("Manifest") {
+                            HStack {
+                                Text(options.manifest.isEmpty ? "None" : options.manifest).lineLimit(1).truncationMode(.middle)
+                                    .foregroundStyle(options.manifest.isEmpty ? .secondary : .primary)
+                                Button("Choose…", action: chooseManifest)
+                            }
+                        }
+                    }
+                } header: { Text("Pod Network") } footer: {
+                    if options.network == .none { Text("Nodes stay Not Ready until you apply a network plugin with kubectl apply.") }
+                }
+                Section {
+                    TextField("Node image", text: $options.nodeImage, prompt: Text("The CLI's kindest/node image")).font(.body.monospaced())
+                    if offers("--rm") { Toggle("Delete the cluster when it stops", isOn: $options.removeWhenStopped) }
+                } header: { Text("Advanced") }
+            }
+            .formStyle(.grouped)
+            Divider()
+            SheetFooter(problem: problem, action: "Create") {
+                guard (try? store.createCluster(options)) != nil else { return }
+                dismiss()
+            }
+        }
+        .frame(width: 560, height: 640)
+        .task { help = await store.help(for: ["k8s", "create"]); helpRead = true }
+    }
+    private var problem: String? {
+        if !store.engine.isRunning { return "Start the engine first." }
+        if helpRead && help == nil { return "The k8s plugin did not answer. Check that it is installed, then reopen this form." }
+        return options.problem
+    }
+    private func chooseManifest() {
+        let panel = NSOpenPanel(); panel.title = "Choose a CNI Manifest"
+        panel.canChooseDirectories = false; panel.allowedContentTypes = [.yaml, .json]
+        if panel.runModal() == .OK, let url = panel.url { options.manifest = url.path }
+    }
+}
+
+/// Load into Cluster: copies a local image into a Kubernetes cluster's nodes, so pods can use it without a registry.
+struct LoadIntoClusterSheet: View {
+    @Environment(Store.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    let image: ImageRow
+    @ViewState<[KubernetesClusters.Cluster]?> private var clusters: [KubernetesClusters.Cluster]?
+    @ViewState<String> private var cluster = ""
+    /// Nodes to load into; empty means every node.
+    @ViewState<Set<String>> private var nodes: Set<String> = []
+    @ViewState<Bool> private var canPickNodes = false
+    @ViewState<String?> private var failure: String?
+    private var chosen: KubernetesClusters.Cluster? { clusters?.first { $0.name == cluster } }
+    var body: some View {
+        VStack(spacing: 0) {
+            Form {
+                Section {
+                    LabeledContent("Image") { Text(image.reference).font(.body.monospaced()).textSelection(.enabled) }
+                    if let clusters, !clusters.isEmpty {
+                        Picker("Cluster", selection: $cluster) { ForEach(clusters, id: \.name) { Text($0.name).tag($0.name) } }
+                    } else if let failure {
+                        Label(failure, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).lineLimit(4)
+                    } else if clusters != nil {
+                        Text("No clusters yet. Create one on the Kubernetes page.").foregroundStyle(.secondary)
+                    } else {
+                        ProgressView().frame(maxWidth: .infinity)
+                    }
+                } footer: { Text("Pods can then use the image with imagePullPolicy: Never or IfNotPresent.") }
+                if canPickNodes, let chosen, chosen.nodes.count > 1 {
+                    Section {
+                        ForEach(chosen.nodes, id: \.self) { node in
+                            Toggle(node, isOn: Binding(get: { nodes.contains(node) }, set: { if $0 { nodes.insert(node) } else { nodes.remove(node) } }))
+                        }
+                    } header: { Text("Nodes") } footer: { Text(nodes.isEmpty ? "Every node gets the image." : "Only the chosen nodes get the image.") }
+                }
+            }
+            .formStyle(.grouped)
+            Divider()
+            SheetFooter(problem: chosen == nil ? "Choose a cluster." : nil, action: "Load") {
+                guard (try? store.load(image, into: cluster, nodes: chosen?.nodes.filter(nodes.contains) ?? [])) != nil else { return }
+                dismiss()
+            }
+        }
+        .frame(width: 520, height: 440)
+        .onChange(of: cluster) { _, _ in nodes = [] }
+        .task {
+            canPickNodes = await store.supports(["k8s", "load-image"], flag: "--node")
+            do {
+                let found = KubernetesClusters.parse(try await store.read(["k8s", "list"]))
+                clusters = found; cluster = found.first?.name ?? ""
+            } catch { failure = error.localizedDescription; clusters = [] }
+        }
     }
 }
 

@@ -99,6 +99,9 @@ private struct SheetView: View {
         case .createNetwork: CreateNetworkSheet()
         case .createVolume: CreateVolumeSheet()
         case .importImages: ImportImagesSheet()
+        case .commit(let container): CommitContainerSheet(container: container)
+        case .createCluster: CreateClusterSheet()
+        case .loadIntoCluster(let image): LoadIntoClusterSheet(image: image)
         }
     }
 }
@@ -193,7 +196,11 @@ private struct EngineFooter: View {
                         .shadow(color: color.opacity(store.engine.isRunning ? 0.8 : 0), radius: 4)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(title).font(.system(size: 12, weight: .semibold)).contentTransition(.opacity)
-                        Text("Apple Container").font(.system(size: 11)).foregroundStyle(Color.harborSub)
+                        if let update = store.availableUpdate {
+                            Text("Update to \(update.version)").font(.system(size: 11, weight: .medium)).foregroundStyle(Color.harborText)
+                        } else {
+                            Text("Apple Container").font(.system(size: 11)).foregroundStyle(Color.harborSub)
+                        }
                     }
                     Spacer(minLength: 0)
                 }

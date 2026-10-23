@@ -70,6 +70,8 @@ public struct ImageRow: Identifiable, Hashable, Sendable {
 public enum ImageReference {
     /// One plausible argument: not empty, not an option, no whitespace.
     public static func isValid(_ text: String) -> Bool { !text.isEmpty && !text.hasPrefix("-") && !text.contains(where: \.isWhitespace) }
+    /// A name to give an image (tag, commit): a valid reference that does not end in a separator and has no digest.
+    public static func isNewName(_ text: String) -> Bool { isValid(text) && !text.hasSuffix(":") && !text.hasSuffix("/") && !text.contains("@") }
     /// Repository and tag, keeping registry ports (`localhost:5000/app`) and digests (`app@sha256:…`) out of the tag.
     /// Whether two references name the same image, however much of `docker.io/library/…:latest` each spells out.
     public static func sameImage(_ a: String, _ b: String) -> Bool { canonical(a) == canonical(b) }
@@ -160,13 +162,18 @@ public struct RunOptions: Equatable, Sendable {
     public var entrypoint = ""
     public var user = ""
     public var labels: [String] = []
+    /// Extra DNS names on the network (1.6.0); they need a network, so they attach to `default` when none is chosen.
+    public var aliases: [String] = []
     public var useInit = false
     public var readOnly = false
     public var extraOptions = ""
     public var command = ""
     public init(image: String = "") { self.image = image }
-    /// Options the form offers only when the local `container run --help` lists them.
-    public static let optionalFlags = ["--network", "--rm", "--arch", "--workdir", "--entrypoint", "--user", "--label", "--init", "--read-only"]
+    /// Options the form offers only when the local `container run --help` lists them. `alias=` is not a flag but a
+    /// property of `--network` (1.6.0), listed in that flag's help.
+    public static let optionalFlags = ["--network", "--rm", "--arch", "--workdir", "--entrypoint", "--user", "--label", "--init", "--read-only", "alias="]
+    /// The most aliases the CLI accepts per network.
+    public static let maxAliases = 32
     public static let architectures = ["", "arm64", "amd64"]
     /// The first thing that keeps the form from running, phrased for the user; nil when it is ready.
     public var problem: String? {
@@ -182,6 +189,10 @@ public struct RunOptions: Equatable, Sendable {
         if !entrypoint.isEmpty && (entrypoint.hasPrefix("-") || entrypoint.contains(where: \.isNewline)) { return "The entrypoint is a program path, like /bin/sh." }
         if !user.isEmpty && !matches(user, "^[A-Za-z0-9_][A-Za-z0-9_.-]*(:[A-Za-z0-9_][A-Za-z0-9_.-]*)?$") { return "The user is written name, uid or uid:gid." }
         if Self.entries(labels).contains(where: { !matches($0, "^[^=\\s]+=") }) { return "Labels are written key=value." }
+        if let alias = Self.entries(aliases).first(where: { !Self.isAlias($0) }) {
+            return alias.contains("*") ? "Write “\(alias)” with a leading dot instead of *, like .example.test." : "“\(alias)” is not a DNS name like api.test or .gateway.test."
+        }
+        if Self.entries(aliases).count > Self.maxAliases { return "A container can have at most \(Self.maxAliases) aliases per network." }
         if (try? ArgumentTokenizer.split(extraOptions)) == nil || (try? ArgumentTokenizer.split(command)) == nil { return "A quote in the extra arguments or command is not closed." }
         return nil
     }
@@ -190,7 +201,10 @@ public struct RunOptions: Equatable, Sendable {
         var args = ["run", "--detach", "--cpus", String(cpus), "--memory", memory]
         if !name.isEmpty { args += ["--name", name] }
         if removeWhenStopped { args.append("--rm") }
-        if !network.isEmpty { args += ["--network", network] }
+        let aliases = Self.entries(aliases)
+        if !network.isEmpty || !aliases.isEmpty {
+            args += ["--network", (network.isEmpty ? "default" : network) + aliases.map { ",alias=" + $0 }.joined()]
+        }
         if !architecture.isEmpty { args += ["--arch", architecture] }
         if !workingDirectory.isEmpty { args += ["--workdir", workingDirectory] }
         if !entrypoint.isEmpty { args += ["--entrypoint", entrypoint] }
@@ -204,6 +218,11 @@ public struct RunOptions: Equatable, Sendable {
         return args + (try ArgumentTokenizer.split(extraOptions)) + [trimmedImage] + (try ArgumentTokenizer.split(command))
     }
     private var trimmedImage: String { image.trimmingCharacters(in: .whitespacesAndNewlines) }
+    /// An exact DNS name or, with a leading dot, a whole subtree. No commas, which would end the `--network` property.
+    static func isAlias(_ text: String) -> Bool {
+        let label = "[A-Za-z0-9_]([A-Za-z0-9_-]*[A-Za-z0-9_])?"
+        return text.range(of: "^\\.?\(label)(\\.\(label))*\\.?$", options: .regularExpression) != nil
+    }
     // Values are passed literally, so only surrounding whitespace is dropped (inner spaces in KEY=value survive).
     private static func entries(_ values: [String]) -> [String] { values.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } }
     private func matches(_ text: String, _ pattern: String) -> Bool { text.range(of: pattern, options: .regularExpression) != nil }
@@ -260,7 +279,11 @@ public struct ContainerDetails: Hashable, Sendable {
         public var address: String
         public var gateway: String
         public var hostname: String
-        public init(name: String, address: String = "", gateway: String = "", hostname: String = "") { self.name = name; self.address = address; self.gateway = gateway; self.hostname = hostname }
+        /// Additional DNS names (1.6.0 `--network name,alias=…`): exact names, or `.domain` for every name below it.
+        public var aliases: [String]
+        public init(name: String, address: String = "", gateway: String = "", hostname: String = "", aliases: [String] = []) {
+            self.name = name; self.address = address; self.gateway = gateway; self.hostname = hostname; self.aliases = aliases
+        }
     }
     public var created: Date?
     public var started: Date?

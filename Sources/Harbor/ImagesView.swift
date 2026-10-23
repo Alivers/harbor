@@ -8,13 +8,16 @@ struct ImagesView: View {
     @ViewState<[ImageRow]> private var pendingDelete: [ImageRow] = []
     @ViewState<Bool?> private var pendingPrune: Bool?
     @ViewState<ImageRow?> private var pendingPush: ImageRow?
+    /// Whether the k8s plugin can load images (it only answers while the engine runs).
+    @ViewState<Bool> private var canLoadIntoCluster = false
 
     private var rows: [ImageRow] { search.isEmpty ? store.images : store.images.filter { $0.reference.localizedCaseInsensitiveContains(search) } }
 
     private var subtitle: String {
         guard store.engine.isRunning else { return "" }
         // A failed read keeps the previous list on screen; say so instead of hiding it.
-        return "\(store.images.count) local" + (store.imageError != nil && !store.images.isEmpty ? " · not refreshed" : "")
+        if store.imageError != nil && !store.images.isEmpty { return "\(store.images.count) local · not refreshed" }
+        return "\(store.images.count) local" + (store.imageWarning != nil ? " · some could not be read" : "")
     }
 
     var body: some View {
@@ -39,6 +42,10 @@ struct ImagesView: View {
                 .disabled(!store.engine.isRunning)
         } content: {
             content
+        }
+        .task(id: "\(store.engine.isRunning) \(store.installedVersion ?? "")") {
+            guard store.engine.isRunning else { canLoadIntoCluster = false; return }
+            canLoadIntoCluster = await store.help(for: ["k8s", "load-image"]) != nil
         }
         .confirmationDialog(pendingDelete.count == 1 ? "Delete “\(pendingDelete[0].reference)”?" : "Delete \(pendingDelete.count) images?",
                             isPresented: Binding(get: { !pendingDelete.isEmpty }, set: { if !$0 { pendingDelete = [] } }), titleVisibility: .visible) {
@@ -72,27 +79,42 @@ struct ImagesView: View {
         } else if rows.isEmpty {
             ContentUnavailableView.search(text: search).huggingGlassPanel(height: 300)
         } else {
-            SelectableRows(items: rows, selection: $selection, rowHeight: ImageListRow.height,
-                           onOpen: { image in store.present(.run(RunOptions(image: image.reference))) },
-                           onDelete: { pendingDelete = $0 }) { image in
-                ImageListRow(image: image)
-            } menu: { chosen in
-                if chosen.count == 1, let image = chosen.first {
-                    Button("Run Container…") { store.present(.run(RunOptions(image: image.reference))) }
-                    Divider()
-                    Button("Tag…") { store.present(.tag(image)) }
-                    Button("Push…") { pendingPush = image }
-                    Button("Copy Reference") { store.copy(image.reference) }
-                    Divider()
+            VStack(alignment: .leading, spacing: 8) {
+                // 1.6.0 lists the images it can read; the CLI's message names the others.
+                if let warning = store.imageWarning {
+                    Label("Some images could not be read", systemImage: "exclamationmark.triangle")
+                        .font(.system(size: 11, weight: .medium)).foregroundStyle(.orange)
+                        .help(warning).padding(.leading, 4)
                 }
-                Button(chosen.count > 1 ? "Save \(chosen.count) Images…" : "Save as Archive…") { store.save(chosen) }.disabled(chosen.isEmpty)
-                Divider()
-                Button(chosen.count > 1 ? "Delete \(chosen.count) Images…" : "Delete…", role: .destructive) { pendingDelete = chosen }
-                    .disabled(chosen.isEmpty)
+                imageList
             }
-            .huggingGlassPanel(height: 12 + CGFloat(rows.count) * ImageListRow.height)
-            .onChange(of: store.images.map(\.id)) { _, ids in selection.formIntersection(ids) }
         }
+    }
+
+    private var imageList: some View {
+        SelectableRows(items: rows, selection: $selection, rowHeight: ImageListRow.height,
+                       onOpen: { image in store.present(.run(RunOptions(image: image.reference))) },
+                       onDelete: { pendingDelete = $0 }) { image in
+            ImageListRow(image: image)
+        } menu: { chosen in
+            if chosen.count == 1, let image = chosen.first {
+                Button("Run Container…") { store.present(.run(RunOptions(image: image.reference))) }
+                Divider()
+                Button("Tag…") { store.present(.tag(image)) }
+                Button("Push…") { pendingPush = image }
+                if canLoadIntoCluster { Button("Load into Kubernetes Cluster…") { store.present(.loadIntoCluster(image)) } }
+                Divider()
+                Button("Inspect") { store.inspect(image) }
+                Button("Copy Reference") { store.copy(image.reference) }
+                Divider()
+            }
+            Button(chosen.count > 1 ? "Save \(chosen.count) Images…" : "Save as Archive…") { store.save(chosen) }.disabled(chosen.isEmpty)
+            Divider()
+            Button(chosen.count > 1 ? "Delete \(chosen.count) Images…" : "Delete…", role: .destructive) { pendingDelete = chosen }
+                .disabled(chosen.isEmpty)
+        }
+        .huggingGlassPanel(height: 12 + CGFloat(rows.count) * ImageListRow.height)
+        .onChange(of: store.images.map(\.id)) { _, ids in selection.formIntersection(ids) }
     }
 }
 

@@ -170,9 +170,10 @@ private struct SetupStep<Content: View>: View {
 struct EngineView: View {
     @Environment(Store.self) private var store
     @ViewState<Bool> private var confirmStop = false
+    @ViewState<InstallerPackage?> private var pendingUpdate: InstallerPackage?
     var body: some View {
         let busy = store.isBusy("engine")
-        PageScaffold(title: "Engine", subtitle: "Apple Container") {
+        PageScaffold(title: "Engine", subtitle: "Apple Container" + (store.installedVersion.map { " " + $0 } ?? "")) {
             GlassControls {
                 HeaderMenu(systemName: "ellipsis", help: "All system commands") { NativeActionItems(group: "System") }
                 SettingsLink { HeaderIcon(systemName: "slider.horizontal.3") }
@@ -194,6 +195,7 @@ struct EngineView: View {
                     }
                 }
                 .card()
+                if let update = store.availableUpdate { UpdateCard(update: update, busy: busy) { pendingUpdate = update } }
                 // The guide is for getting started; once the engine runs and has run something, it steps aside.
                 if !setUp {
                     VStack(alignment: .leading, spacing: 16) {
@@ -218,6 +220,12 @@ struct EngineView: View {
         .confirmationDialog("Stop Apple Container?", isPresented: $confirmStop, titleVisibility: .visible) {
             Button("Stop Engine", role: .destructive) { store.stopEngine() }
         } message: { Text("All running containers stop with it.") }
+        .confirmationDialog("Update Apple Container to \(pendingUpdate?.version ?? "")?", isPresented: Binding(get: { pendingUpdate != nil }, set: { if !$0 { pendingUpdate = nil } }),
+                            titleVisibility: .visible, presenting: pendingUpdate) { update in
+            Button("Update", role: .destructive) { store.updateEngine(to: update) }
+        } message: { _ in
+            Text(store.engine.isRunning ? "The engine stops for the update, and every running container with it; it starts again afterwards. Containers do not restart on their own." : "The engine stays stopped afterwards.")
+        }
     }
     /// Installed, running, and something has run: nothing left to set up.
     private var setUp: Bool { store.engine.isRunning && !store.containers.isEmpty }
@@ -229,6 +237,30 @@ struct EngineView: View {
     } }
 }
 
+/// A newer Apple Container release than the installed one, with what updating does and how.
+private struct UpdateCard: View {
+    @Environment(Store.self) private var store
+    let update: InstallerPackage
+    let busy: Bool
+    let start: () -> Void
+    var body: some View {
+        HStack(alignment: .top, spacing: 16) {
+            RowIcon(systemName: "arrow.down.circle")
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Apple Container \(update.version) is available").font(.system(size: 13, weight: .semibold))
+                Text("You have \(store.installedVersion ?? "an older version"). " + (ReleaseVersion.managedByHomebrew(store.config.container)
+                     ? "Harbor updates it with Homebrew (brew upgrade container)."
+                     : "Harbor downloads Apple's signed installer; macOS Installer asks for your password, Harbor never sees it."))
+                    .font(.system(size: 11)).foregroundStyle(Color.harborSub).fixedSize(horizontal: false, vertical: true)
+                Link("Release notes", destination: ReleaseVersion.notes(update.version)).font(.system(size: 11, weight: .medium))
+            }
+            Spacer(minLength: 0)
+            Button(busy ? "Updating…" : "Update…", action: start).buttonStyle(.borderedProminent).disabled(busy)
+        }
+        .card()
+    }
+}
+
 /// Edits a draft so half-typed paths never reach the running app; Apply or closing the window commits it.
 struct SettingsView: View {
     @Environment(Store.self) private var store
@@ -236,6 +268,7 @@ struct SettingsView: View {
     @ViewState<RuntimeConfig?> private var draft: RuntimeConfig?
     @AppStorage(Preference.menuBarExtra) private var showMenuBarExtra = true
     @AppStorage(Preference.notifications) private var notify = true
+    @AppStorage(Preference.updateCheck) private var checkUpdates = true
     @AppStorage(Preference.glassStyle) private var glassStyle = GlassStyle.clear.rawValue
     var body: some View {
         let edited = Binding(get: { draft ?? store.config }, set: { draft = $0 })
@@ -263,8 +296,9 @@ struct SettingsView: View {
             Section {
                 Toggle("Show Harbor in the menu bar", isOn: $showMenuBarExtra)
                 Toggle("Notify when a job finishes in the background", isOn: $notify)
+                Toggle("Check for new Apple Container releases", isOn: $checkUpdates)
             } header: { Text("General") } footer: {
-                Text("The menu bar shows the engine and running containers even when the window is closed. Notifications cover jobs that fail or take longer than a few seconds.")
+                Text("The menu bar shows the engine and running containers even when the window is closed. Notifications cover jobs that fail or take longer than a few seconds. The release check asks GitHub once a day; nothing is installed until you choose Update on the Engine page.")
             }
             Group {
                 Section {
