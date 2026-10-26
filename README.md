@@ -46,7 +46,7 @@ All 68 leaf subcommands of Apple Container **1.6.0** have an entry point. The 67
 | Registries | Login list, log in/out; interactive credentials are entered in Terminal |
 | Linux machines | Create, run, list, inspect, configure, default machine, logs, stop and delete |
 | System | Engine start/stop, status, version, logs, disk usage, DNS, kernel, properties; update check and one-click update |
-| Kubernetes | Official experimental `k8s` plugin: create form (workers and pod network on 1.6.0), delete, list, load-image (chosen nodes on 1.6.0), write-config |
+| Kubernetes | Official experimental plugin (`container cluster`, `k8s` before 1.6.1): create form (workers and pod network on 1.6.0), delete, list, load-image (chosen nodes on 1.6.0), write-config |
 | Native commands | Searchable command catalog, custom arguments, working directory, live local help, Terminal mode |
 | Compose (optional) | Multi-file import (or drop) with override order, validate, build, pull, up, stop, restart, down, logs and status, per-service actions, and each project's containers listed in place; runs the real Docker CLI / Compose against a dedicated Socktainer socket |
 
@@ -75,7 +75,7 @@ DNS create/delete runs `sudo container system dns …` in Terminal, where the sy
 
 ### About Kubernetes
 
-Early Apple Container releases had no Kubernetes support. 1.5.0 ships an official experimental plugin that can create local development clusters; this is a native capability and does not depend on Socktainer. 1.6.0 adds worker nodes (`--workers`), clusters without a pod network (`--cni NONE`) and loading an image into chosen nodes (`load-image --node`). There is no `k8s start`, so Harbor has no invented start button.
+Early Apple Container releases had no Kubernetes support. 1.5.0 ships an official experimental plugin that can create local development clusters; this is a native capability and does not depend on Socktainer. 1.6.0 adds worker nodes (`--workers`), clusters without a pod network (`--cni NONE`) and loading an image into chosen nodes (`load-image --node`). 1.6.1 renamed the plugin from `container k8s` to `container cluster`; Harbor uses whichever name the local CLI has. There is no `cluster start`, so Harbor has no invented start button.
 
 Creating a cluster and writing config update kubeconfig as the official CLI does. The local help and the [official documentation](https://github.com/apple/container/blob/1.6.0/docs/kubernetes.md) define what is supported. Harbor never creates clusters automatically.
 
@@ -121,7 +121,7 @@ docker run --rm -v "$PWD":/src -w /src swift:6.1-noble swift run HarborChecks
 
 - `HARBOR_BUILD_DIR` sets the build cache directory.
 - `HARBOR_CONFIGURATION=debug` produces a debug build; the script defaults to release.
-- `python3 scripts/check-native-catalog.py` checks the command catalog against the local CLI help; `HARBOR_CONTAINER` selects the executable. Plugin commands (`build`, `builder`, `k8s`) are read from the plugin executables next to the CLI, or from `HARBOR_PLUGINS`, so the services need not run.
+- `python3 scripts/check-native-catalog.py` checks the command catalog against the local CLI help; `HARBOR_CONTAINER` selects the executable. Plugin commands (`build`, `builder`, and `cluster`, checked as `k8s` on a CLI before 1.6.1) are read from the plugin executables next to the CLI, or from `HARBOR_PLUGINS`, so the services need not run.
 - `python3 scripts/check-docker-adapter.py` runs the real Docker CLI and Compose plugin against a fake Engine API to check the `compose ps` JSON the app decodes; `HARBOR_DOCKER` selects the Docker path.
 - The build script produces a locally ad-hoc signed `.app` that is not notarized. Sign it with a developer identity and notarize it before distributing to other Macs.
 

@@ -8,7 +8,7 @@ struct ImagesView: View {
     @ViewState<[ImageRow]> private var pendingDelete: [ImageRow] = []
     @ViewState<Bool?> private var pendingPrune: Bool?
     @ViewState<ImageRow?> private var pendingPush: ImageRow?
-    /// Whether the k8s plugin can load images (it only answers while the engine runs).
+    /// Whether the Kubernetes plugin can load images (it only answers while the engine runs).
     @ViewState<Bool> private var canLoadIntoCluster = false
 
     private var rows: [ImageRow] { search.isEmpty ? store.images : store.images.filter { $0.reference.localizedCaseInsensitiveContains(search) } }
@@ -43,9 +43,9 @@ struct ImagesView: View {
         } content: {
             content
         }
-        .task(id: "\(store.engine.isRunning) \(store.installedVersion ?? "")") {
+        .task(id: "\(store.engine.isRunning) \(store.installedVersion ?? "") \(store.clusterPlugin ?? "")") {
             guard store.engine.isRunning else { canLoadIntoCluster = false; return }
-            canLoadIntoCluster = await store.help(for: ["k8s", "load-image"]) != nil
+            canLoadIntoCluster = await store.help(for: ["cluster", "load-image"]) != nil
         }
         .confirmationDialog(pendingDelete.count == 1 ? "Delete “\(pendingDelete[0].reference)”?" : "Delete \(pendingDelete.count) images?",
                             isPresented: Binding(get: { !pendingDelete.isEmpty }, set: { if !$0 { pendingDelete = [] } }), titleVisibility: .visible) {

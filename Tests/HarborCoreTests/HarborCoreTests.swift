@@ -69,6 +69,17 @@ final class HarborCoreTests {
     func testNativeHelpRejectsFallbackRootHelp() {
         XCTAssertTrue(NativeHelp.matches("USAGE: container volume create [options]", path: ["volume", "create"]))
         XCTAssertTrue(NativeHelp.matches("USAGE: k8s create [options]", path: ["k8s", "create"]))
+        // 1.6.1 renamed the Kubernetes plugin from k8s to cluster; the catalog uses the new name and accepts the old help.
+        XCTAssertTrue(NativeHelp.matches("USAGE: cluster create [--name <name>]", path: ["cluster", "create"]))
+        XCTAssertTrue(NativeHelp.matches("USAGE: k8s create [--name <name>]", path: ["cluster", "create"]))
+        XCTAssertTrue(NativeHelp.matches("USAGE: cluster <subcommand>", path: ["cluster"]))
+        XCTAssertFalse(NativeHelp.matches("Error: unknown command 'cluster'\nUsage: container [--debug] <subcommand>", path: ["cluster"]))
+        XCTAssertFalse(NativeHelp.matches("USAGE: k8s delete [--name <name>]", path: ["cluster", "create"]))
+        XCTAssertEqual(KubernetesPlugin.arguments(["cluster", "list"], plugin: "k8s"), ["k8s", "list"])
+        XCTAssertEqual(KubernetesPlugin.arguments(["cluster", "list"], plugin: "cluster"), ["cluster", "list"])
+        XCTAssertEqual(KubernetesPlugin.arguments(["cluster", "list"], plugin: nil), ["cluster", "list"])
+        XCTAssertEqual(KubernetesPlugin.arguments(["network", "list"], plugin: "k8s"), ["network", "list"])
+        XCTAssertEqual(KubernetesPlugin.defaultCluster(plugin: "k8s"), "k8s-dev"); XCTAssertEqual(KubernetesPlugin.defaultCluster(plugin: nil), "cluster-dev")
         XCTAssertEqual(NativeHelp.matches("USAGE: container [--debug] <subcommand>", path: ["volume", "create"]), false)
         // 1.6.0 moved build and builder into plugins; 1.5.0 printed the dispatcher's name.
         XCTAssertTrue(NativeHelp.matches("USAGE: build [<options>] [<context-dir>]", path: ["build"]))
@@ -266,7 +277,7 @@ final class HarborCoreTests {
         XCTAssertNil(TextTable.parse(""))
         XCTAssertEqual(NativeOperation.named("network delete")?.example(naming: "dev net"), "'dev net'")
         XCTAssertEqual(NativeOperation.named("machine logs")?.example(naming: "box"), "-n 300 box")
-        XCTAssertEqual(NativeOperation.named("k8s delete")?.example(naming: "lab"), "--name lab")
+        XCTAssertEqual(NativeOperation.named("cluster delete")?.example(naming: "lab"), "--name lab")
         XCTAssertEqual(JSONText.pretty(#"{"b":1,"a":[true]}"#), "{\n  \"a\" : [\n    true\n  ],\n  \"b\" : 1\n}")
         XCTAssertEqual(JSONText.pretty("not json"), "not json")
     }
@@ -300,9 +311,9 @@ final class HarborCoreTests {
     }
     func testKubernetesClusters() throws {
         var options = ClusterOptions()
-        XCTAssertEqual(try options.arguments(), ["k8s", "create", "--name", "k8s-dev"])
+        XCTAssertEqual(try options.arguments(), ["cluster", "create", "--name", "cluster-dev"])
         options.name = "lab"; options.workers = 2; options.cpus = 4; options.memory = "8g"; options.network = .none; options.removeWhenStopped = true
-        XCTAssertEqual(try options.arguments(), ["k8s", "create", "--name", "lab", "--workers", "2", "--cpus", "4", "--memory", "8g", "--cni", "NONE", "--rm"])
+        XCTAssertEqual(try options.arguments(), ["cluster", "create", "--name", "lab", "--workers", "2", "--cpus", "4", "--memory", "8g", "--cni", "NONE", "--rm"])
         options.network = .manifest; options.manifest = "/does/not/exist.yaml"; XCTAssertNotNil(options.problem)
         options.manifest = "relative.yaml"; XCTAssertNotNil(options.problem)
         options.network = .bundled; options.nodeImage = "kindest/node:v1.35.5"
@@ -310,7 +321,7 @@ final class HarborCoreTests {
         options.workers = ClusterOptions.maxWorkers + 1; XCTAssertNotNil(options.problem); options.workers = 0
         options.memory = "lots"; XCTAssertNotNil(options.problem); options.memory = ""
         options.name = "-x"; XCTAssertThrowsError(try options.arguments())
-        // `k8s list` prints one row per node; clusters keep their nodes in order.
+        // `cluster list` prints one row per node; clusters keep their nodes in order.
         let listing = """
         CLUSTER  NODE              ROLE           STATE    CPUS  MEMORY   ADDR           PORTS
         k8s-dev  k8s-dev           control-plane  running  2     4096 MB  192.168.64.10  6443->6443
@@ -319,9 +330,9 @@ final class HarborCoreTests {
         """
         XCTAssertEqual(KubernetesClusters.parse(listing), [.init(name: "k8s-dev", nodes: ["k8s-dev", "k8s-dev-worker-1"]), .init(name: "lab", nodes: ["lab"])])
         XCTAssertEqual(KubernetesClusters.parse("No clusters found."), [])
-        XCTAssertEqual(try KubernetesClusters.loadArguments(image: "local/app:dev", cluster: "k8s-dev"), ["k8s", "load-image", "--name", "k8s-dev", "local/app:dev"])
+        XCTAssertEqual(try KubernetesClusters.loadArguments(image: "local/app:dev", cluster: "k8s-dev"), ["cluster", "load-image", "--name", "k8s-dev", "local/app:dev"])
         XCTAssertEqual(try KubernetesClusters.loadArguments(image: "app", cluster: "k8s-dev", nodes: ["k8s-dev-worker-1"]),
-                       ["k8s", "load-image", "--name", "k8s-dev", "--node", "k8s-dev-worker-1", "app"])
+                       ["cluster", "load-image", "--name", "k8s-dev", "--node", "k8s-dev-worker-1", "app"])
         XCTAssertThrowsError(try KubernetesClusters.loadArguments(image: "--all", cluster: "k8s-dev"))
     }
     func testReleaseVersions() throws {

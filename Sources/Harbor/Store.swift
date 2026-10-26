@@ -95,6 +95,8 @@ enum Preference {
     private(set) var bridgeOwned = false
     /// The installed CLI's version, from `container --version`; nil until read or when it cannot be read.
     private(set) var installedVersion: String?
+    /// The Kubernetes plugin's name in the local CLI (`cluster`, or `k8s` before 1.6.1); nil until read or without one.
+    private(set) var clusterPlugin: String?
     /// The newest release on GitHub, when the update check is on and has run (set by `checkForUpdate`).
     var latestRelease: InstallerPackage? = UserDefaults.standard.data(forKey: Preference.latestRelease).flatMap { try? JSONDecoder().decode(InstallerPackage.self, from: $0) }
     /// Newest first. Jobs run concurrently; only jobs on the same `subject` exclude each other.
@@ -226,7 +228,18 @@ enum Preference {
         installedVersion = version
     }
     func read(_ arguments: [String], timeout: TimeInterval = 20) async throws -> String {
-        try await Runner.checked(config.nativeCommand(arguments), timeout: timeout)
+        try await Runner.checked(native(arguments), timeout: timeout)
+    }
+    /// A native command, with Kubernetes plugin commands under the name the local CLI has (`KubernetesPlugin`).
+    func native(_ arguments: [String]) -> Command { config.nativeCommand(KubernetesPlugin.arguments(arguments, plugin: clusterPlugin)) }
+    /// Which name the Kubernetes plugin answers to. Plugins load only while the engine runs, so this is read as it
+    /// comes up, and before the pages' listings.
+    private func readClusterPlugin() async {
+        var found: String?
+        for name in KubernetesPlugin.names {
+            if let text = try? await Runner.checked(config.nativeCommand([name, "--help"]), timeout: 10), NativeHelp.matches(text, path: [name]) { found = name; break }
+        }
+        if clusterPlugin != found { clusterPlugin = found }
     }
     func listing(_ arguments: [String]) -> String? { listings[arguments.joined(separator: " ")] }
     /// Reads a resource listing into `listings`, leaving it untouched when nothing changed.
@@ -240,12 +253,13 @@ enum Preference {
     /// One quiet pass over every page's data; failures are left for the page itself to show.
     private func prefetchPages() async {
         await refreshVersion()
+        await readClusterPlugin()
         for page in Page.allCases where !page.listing.isEmpty { try? await readListing(page.listing) }
         await refreshCompatibility()
     }
     /// The local help for a subcommand, cached per CLI path; nil when the CLI does not know the command.
     func help(for path: [String]) async -> String? {
-        let key = config.container + " " + path.joined(separator: " ")
+        let key = config.container + " " + KubernetesPlugin.arguments(path, plugin: clusterPlugin).joined(separator: " ")
         if let cached = helpCache[key] { return cached }
         guard let text = try? await read(path + ["--help"], timeout: 10), NativeHelp.matches(text, path: path) else { return nil }
         helpCache[key] = text
@@ -421,11 +435,11 @@ enum Preference {
     }
     /// Pulls the node image and boots every node, which takes minutes; the output streams into the job.
     func createCluster(_ options: ClusterOptions) throws {
-        perform("Create cluster \(options.name)", command: config.nativeCommand(try options.arguments()), subject: "cluster " + options.name, timeout: 3600)
+        perform("Create cluster \(options.name)", command: native(try options.arguments()), subject: "cluster " + options.name, timeout: 3600)
     }
     func load(_ image: ImageRow, into cluster: String, nodes: [String]) throws {
         let arguments = try KubernetesClusters.loadArguments(image: image.reference, cluster: cluster, nodes: nodes)
-        perform("Load \(image.reference) into \(cluster)", command: config.nativeCommand(arguments), subject: "cluster " + cluster, timeout: 1800)
+        perform("Load \(image.reference) into \(cluster)", command: native(arguments), subject: "cluster " + cluster, timeout: 1800)
     }
     /// Names from a `--quiet` listing (`network list -q`, `volume list -q`); empty when the read fails.
     func names(_ listing: [String]) async -> [String] {

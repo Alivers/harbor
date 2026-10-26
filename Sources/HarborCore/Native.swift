@@ -148,16 +148,34 @@ public enum ArgumentTokenizer {
     }
 }
 
+/// The Kubernetes plugin's command: `container cluster` since 1.6.1, `container k8s` before. The catalog, the forms
+/// and the Kubernetes page use the new name; the store passes the old one to a CLI that only has that.
+public enum KubernetesPlugin {
+    public static let current = "cluster", legacy = "k8s"
+    /// Newest first, as the store tries them.
+    public static let names = [current, legacy]
+    /// `arguments` for a CLI whose plugin answers to `name`; nil (not read yet, or no plugin) keeps the new name.
+    public static func arguments(_ arguments: [String], plugin name: String?) -> [String] {
+        guard let name, name != current, arguments.first == current else { return arguments }
+        return [name] + arguments.dropFirst()
+    }
+    /// The cluster the CLI uses when given no name: `cluster-dev`, or `k8s-dev` before 1.6.1.
+    public static func defaultCluster(plugin name: String?) -> String { (name ?? current) + "-dev" }
+}
+
 public enum NativeHelp {
     /// Commands the CLI hands to a plugin executable, which prints its own name rather than the dispatcher's:
     /// `USAGE: builder start`. `build` and `builder` became plugins in 1.6.0 (1.5.0 printed `USAGE: container build`);
     /// plugins only load while the engine runs.
-    public static let plugins: Set<String> = ["build", "builder", "k8s"]
+    public static let plugins: Set<String> = ["build", "builder", KubernetesPlugin.current, KubernetesPlugin.legacy]
     public static func matches(_ text: String, path: [String]) -> Bool {
         if path.isEmpty { return text.contains("USAGE: container") }
-        let expected = "USAGE: container " + path.joined(separator: " ")
-        if text.contains(expected) { return true }
-        return plugins.contains(path[0]) && text.contains("USAGE: " + path.joined(separator: " "))
+        // A CLI before 1.6.1 answers a `cluster` command under its old name.
+        let spellings = path[0] == KubernetesPlugin.current ? [path, [KubernetesPlugin.legacy] + path.dropFirst()] : [path]
+        return spellings.contains { words in
+            let command = words.joined(separator: " ")
+            return text.contains("USAGE: container " + command) || (plugins.contains(words[0]) && text.contains("USAGE: " + command))
+        }
     }
 }
 
@@ -233,9 +251,9 @@ public struct NativeOperation: Identifiable, Hashable, Sendable {
         .init("System", "Delete DNS Domain (Admin)", "system dns delete", "test", terminal: true, destructive: true, admin: true),
         .init("System", "List DNS Domains", "system dns list"), .init("System", "Install Recommended Kernel", "system kernel set", "--recommended"),
         .init("System", "System Properties", "system property list"),
-        .init("Kubernetes", "Create Cluster (Experimental)", "k8s create", "--name dev --cpus 2 --memory 4g"),
-        .init("Kubernetes", "Delete Cluster", "k8s delete", "--name dev", destructive: true), .init("Kubernetes", "List Clusters", "k8s list"),
-        .init("Kubernetes", "Load Image into Cluster", "k8s load-image", "--name dev local/app:dev"),
-        .init("Kubernetes", "Write kubeconfig", "k8s write-config", "--name dev")
+        .init("Kubernetes", "Create Cluster (Experimental)", "cluster create", "--name dev --cpus 2 --memory 4g"),
+        .init("Kubernetes", "Delete Cluster", "cluster delete", "--name dev", destructive: true), .init("Kubernetes", "List Clusters", "cluster list"),
+        .init("Kubernetes", "Load Image into Cluster", "cluster load-image", "--name dev local/app:dev"),
+        .init("Kubernetes", "Write kubeconfig", "cluster write-config", "--name dev")
     ]
 }

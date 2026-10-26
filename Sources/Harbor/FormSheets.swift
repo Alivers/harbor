@@ -147,7 +147,7 @@ struct CommitContainerSheet: View {
             TextField("Image name", text: $reference, prompt: Text("local/web:snapshot"))
                 .textFieldStyle(.roundedBorder).font(.body.monospaced())
             Text((container.running ? "The container keeps running; the CLI takes a snapshot of it first. " : "")
-                 + "The image holds the container's own files; volumes and mounted folders are not part of it.")
+                 + "The image holds the container's own files; volumes and mounted folders are not part of it. It starts the container's command unless you give another.")
                 .font(.callout).foregroundStyle(.secondary)
             SheetFooter(problem: ContainerCommit.problem(trimmed), action: "Commit") {
                 guard (try? store.commit(container, as: trimmed)) != nil else { return }
@@ -160,12 +160,12 @@ struct CommitContainerSheet: View {
     }
 }
 
-/// Create Cluster: a local Kubernetes cluster from the experimental `k8s` plugin, optionally with worker nodes.
+/// Create Cluster: a local Kubernetes cluster from the experimental `cluster` plugin, optionally with worker nodes.
 struct CreateClusterSheet: View {
     @Environment(Store.self) private var store
     @Environment(\.dismiss) private var dismiss
     @ViewState<ClusterOptions> private var options = ClusterOptions()
-    /// The local `k8s create --help`; options in `ClusterOptions.optionalFlags` show only when it lists them.
+    /// The local `cluster create --help`; options in `ClusterOptions.optionalFlags` show only when it lists them.
     @ViewState<String?> private var help: String?
     @ViewState<Bool> private var helpRead = false
     private let cores = ProcessInfo.processInfo.activeProcessorCount
@@ -174,7 +174,7 @@ struct CreateClusterSheet: View {
         VStack(spacing: 0) {
             Form {
                 Section {
-                    TextField("Name", text: $options.name, prompt: Text("k8s-dev"))
+                    TextField("Name", text: $options.name, prompt: Text(KubernetesPlugin.defaultCluster(plugin: store.clusterPlugin)))
                     if offers("--workers") {
                         Stepper(options.workers == 0 ? "Workers: none" : "Workers: \(options.workers)", value: $options.workers, in: 0...ClusterOptions.maxWorkers)
                     }
@@ -218,11 +218,15 @@ struct CreateClusterSheet: View {
             }
         }
         .frame(width: 560, height: 640)
-        .task { help = await store.help(for: ["k8s", "create"]); helpRead = true }
+        .task {
+            // Start from the CLI's own default name, which 1.6.1 changed from k8s-dev to cluster-dev.
+            if options.name == ClusterOptions().name { options.name = KubernetesPlugin.defaultCluster(plugin: store.clusterPlugin) }
+            help = await store.help(for: ["cluster", "create"]); helpRead = true
+        }
     }
     private var problem: String? {
         if !store.engine.isRunning { return "Start the engine first." }
-        if helpRead && help == nil { return "The k8s plugin did not answer. Check that it is installed, then reopen this form." }
+        if helpRead && help == nil { return "The Kubernetes plugin did not answer. Check that it is installed, then reopen this form." }
         return options.problem
     }
     private func chooseManifest() {
@@ -277,9 +281,9 @@ struct LoadIntoClusterSheet: View {
         .frame(width: 520, height: 440)
         .onChange(of: cluster) { _, _ in nodes = [] }
         .task {
-            canPickNodes = await store.supports(["k8s", "load-image"], flag: "--node")
+            canPickNodes = await store.supports(["cluster", "load-image"], flag: "--node")
             do {
-                let found = KubernetesClusters.parse(try await store.read(["k8s", "list"]))
+                let found = KubernetesClusters.parse(try await store.read(["cluster", "list"]))
                 clusters = found; cluster = found.first?.name ?? ""
             } catch { failure = error.localizedDescription; clusters = [] }
         }

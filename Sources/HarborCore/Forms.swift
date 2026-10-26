@@ -118,11 +118,11 @@ public enum ContainerCommit {
     }
 }
 
-/// The Create Cluster form → `container k8s create`.
+/// The Create Cluster form → `container cluster create` (`k8s create` before 1.6.1, see `KubernetesPlugin`).
 public struct ClusterOptions: Equatable, Sendable {
     /// The pod network: the bundled kindnet, none (`--cni NONE`, 1.6.0) or a manifest file.
     public enum Network: String, CaseIterable, Sendable { case bundled, none, manifest }
-    public var name = "k8s-dev"
+    public var name = "cluster-dev"
     /// Dedicated worker nodes (`--workers`, 1.6.0); with none, the control-plane node runs pods too.
     public var workers = 0
     /// 0 and empty leave the CLI defaults: a quarter of the Mac's cores (at least 2) and of its memory (at least 2 GB).
@@ -134,7 +134,7 @@ public struct ClusterOptions: Equatable, Sendable {
     public var nodeImage = ""
     public var removeWhenStopped = false
     public init() {}
-    /// What the form offers only when the local `container k8s create --help` lists it.
+    /// What the form offers only when the local `cluster create --help` lists it.
     public static let optionalFlags = ["--workers", "NONE", "--rm"]
     public static let maxWorkers = 8
     public var problem: String? {
@@ -148,7 +148,7 @@ public struct ClusterOptions: Equatable, Sendable {
     }
     public func arguments() throws -> [String] {
         if let problem { throw HarborError.message(problem) }
-        var args = ["k8s", "create", "--name", name]
+        var args = [KubernetesPlugin.current, "create", "--name", name]
         if workers > 0 { args += ["--workers", String(workers)] }
         if cpus > 0 { args += ["--cpus", String(cpus)] }
         if !memory.isEmpty { args += ["--memory", memory] }
@@ -163,7 +163,7 @@ public struct ClusterOptions: Equatable, Sendable {
     }
 }
 
-/// Local Kubernetes clusters as `container k8s list` prints them: one row per node, the cluster in the first column.
+/// Local Kubernetes clusters as `container cluster list` prints them: one row per node, the cluster in the first column.
 public enum KubernetesClusters {
     public struct Cluster: Equatable, Sendable {
         public var name: String
@@ -183,10 +183,10 @@ public enum KubernetesClusters {
         }
         return clusters
     }
-    /// `k8s load-image`: every node of the cluster, or only `nodes` (`--node`, 1.6.0).
+    /// `cluster load-image`: every node of the cluster, or only `nodes` (`--node`, 1.6.0).
     public static func loadArguments(image: String, cluster: String, nodes: [String] = []) throws -> [String] {
         guard ImageReference.isValid(image) else { throw HarborError.message("Choose an image to load.") }
         guard ResourceName.isValid(cluster) else { throw HarborError.message("Choose a cluster.") }
-        return ["k8s", "load-image", "--name", cluster] + nodes.flatMap { ["--node", $0] } + [image]
+        return [KubernetesPlugin.current, "load-image", "--name", cluster] + nodes.flatMap { ["--node", $0] } + [image]
     }
 }

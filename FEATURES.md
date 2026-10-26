@@ -6,12 +6,14 @@ The table lists the actions the app provides an entry point for. Not every actio
 
 What 1.6.0 changed, and what Harbor does about it:
 
-- `build` and `builder` are CLI plugins now. Like `k8s`, they print their own name in their help (`USAGE: builder start`) and only load while the engine runs, so their command panels verify help once the engine is up.
+- `build` and `builder` are CLI plugins now. Like the Kubernetes plugin, they print their own name in their help (`USAGE: builder start`) and only load while the engine runs, so their command panels verify help once the engine is up.
 - `container commit` makes an image from a container's filesystem: **Commit to Image…** in a container's menu, offered when the local CLI has it.
 - `--network name,alias=…` gives a container extra DNS names: **DNS Aliases** in the Run Container form, and the aliases in the container's overview.
 - `k8s create --workers` and `--cni NONE`, and `k8s load-image --node`: the **Create Cluster** form on the Kubernetes page and **Load into Kubernetes Cluster…** on an image, each option shown when the local help lists it.
 - `image list` lists the images it can read and then fails if it skipped any: Harbor shows the readable ones with a warning instead of keeping the old list.
 - `machine create --user/--uid/--gid/--home` go through the command panel; the Linux Machines page now says how much less isolated a machine is than a container.
+
+1.6.1 renamed the Kubernetes plugin from `container k8s` to `container cluster` (same subcommands and options; the default cluster is now `cluster-dev`). The catalog uses the new name, and Harbor reads which one the local CLI has once the engine runs, so the Kubernetes page and forms work with either.
 
 | Category | Action | Native command |
 | --- | --- | --- |
@@ -78,8 +80,8 @@ What 1.6.0 changed, and what Harbor does about it:
 | System | List DNS Domains | `container system dns list` |
 | System | Install Recommended Kernel | `container system kernel set` |
 | System | System Properties | `container system property list` |
-| Kubernetes | Create Cluster (Experimental) | `container k8s create` |
-| Kubernetes | Delete Cluster | `container k8s delete` |
-| Kubernetes | List Clusters | `container k8s list` |
-| Kubernetes | Load Image into Cluster | `container k8s load-image` |
-| Kubernetes | Write kubeconfig | `container k8s write-config` |
+| Kubernetes | Create Cluster (Experimental) | `container cluster create` (`k8s create` before 1.6.1) |
+| Kubernetes | Delete Cluster | `container cluster delete` (`k8s delete` before 1.6.1) |
+| Kubernetes | List Clusters | `container cluster list` (`k8s list` before 1.6.1) |
+| Kubernetes | Load Image into Cluster | `container cluster load-image` (`k8s load-image` before 1.6.1) |
+| Kubernetes | Write kubeconfig | `container cluster write-config` (`k8s write-config` before 1.6.1) |
