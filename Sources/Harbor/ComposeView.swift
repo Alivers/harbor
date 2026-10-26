@@ -15,7 +15,7 @@ struct ComposeView: View {
                     } description: {
                         Text("Import compose.yaml, plus any override files. Harbor runs the real Docker Compose against Apple Container through Socktainer.")
                     } actions: {
-                        Button("Import Compose Project…") { store.importProject() }.buttonStyle(.borderedProminent)
+                        Button("Import Compose Project") { store.importProject() }.buttonStyle(.borderedProminent)
                     }
                     .card(padding: 24)
                 }
@@ -71,7 +71,7 @@ private struct CompatibilityCard: View {
                 Button("Create harbor-apple Context") { store.createDockerContext() }.disabled(!store.dockerConnected)
                     .help("Lets docker --context harbor-apple reach Apple Container. Harbor never switches your default context.")
                 Spacer()
-                SettingsLink { Text("Paths…") }
+                SettingsLink { Text("Paths") }
             }
             Text("Socktainer provides partial Docker API compatibility. Images, volumes and data from other Docker engines are not migrated; verify builds, networking and persistence with your own project.")
                 .font(.caption).foregroundStyle(.secondary)

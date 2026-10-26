@@ -1,8 +1,19 @@
 # Native command coverage
 
-Based on the actual CLI help in the official Apple Container 1.5.0 release; all 67 leaf commands have been checked.
+The catalog has 68 leaf commands. The 67 of Apple Container 1.5.0 were checked against the help of its official release; `container commit`, new in 1.6.0, and the 1.6.0 changes below were checked against the upstream 1.6.0 source, not against a running 1.6.0 CLI.
 
-The table lists the actions the app provides an entry point for. Not every action has a dedicated form, and listing an action does not mean it has been run against a real runtime. Dedicated forms or views exist for running, starting, stopping, deleting, logs, stats, inspect and copying files (containers); pulling, building, tagging, pushing, saving, loading, pruning and deleting (images); and creating networks and volumes. Every action lets you edit the full native arguments, read the local help, choose a working directory and hand off to Terminal.
+The table lists the actions the app provides an entry point for. Not every action has a dedicated form, and listing an action does not mean it has been run against a real runtime. Dedicated forms or views exist for running, starting, stopping, deleting, logs, stats, inspect, copying files, exporting and committing (containers); pulling, building, tagging, pushing, saving, loading, inspecting, pruning, deleting and loading into a Kubernetes cluster (images); creating networks, volumes and Kubernetes clusters; and updating Apple Container itself. Every action lets you edit the full native arguments, read the local help, choose a working directory and hand off to Terminal.
+
+What 1.6.0 changed, and what Harbor does about it:
+
+- `build` and `builder` are CLI plugins now. Like the Kubernetes plugin, they print their own name in their help (`USAGE: builder start`) and only load while the engine runs, so their command panels verify help once the engine is up.
+- `container commit` makes an image from a container's filesystem: **Commit to Image…** in a container's menu, offered when the local CLI has it.
+- `--network name,alias=…` gives a container extra DNS names: **DNS Aliases** in the Run Container form, and the aliases in the container's overview.
+- `k8s create --workers` and `--cni NONE`, and `k8s load-image --node`: the **Create Cluster** form on the Kubernetes page and **Load into Kubernetes Cluster…** on an image, each option shown when the local help lists it.
+- `image list` lists the images it can read and then fails if it skipped any: Harbor shows the readable ones with a warning instead of keeping the old list.
+- `machine create --user/--uid/--gid/--home` go through the command panel; the Linux Machines page now says how much less isolated a machine is than a container.
+
+1.6.1 renamed the Kubernetes plugin from `container k8s` to `container cluster` (same subcommands and options; the default cluster is now `cluster-dev`). The catalog uses the new name, and Harbor reads which one the local CLI has once the engine runs, so the Kubernetes page and forms work with either.
 
 | Category | Action | Native command |
 | --- | --- | --- |
@@ -15,6 +26,7 @@ The table lists the actions the app provides an entry point for. Not every actio
 | Containers | List | `container list` |
 | Containers | Exec | `container exec` |
 | Containers | Export Filesystem | `container export` |
+| Containers | Commit to Image (1.6.0) | `container commit` |
 | Containers | Reclaim Filesystem Space | `container clean` |
 | Containers | Logs | `container logs` |
 | Containers | Inspect | `container inspect` |
@@ -68,8 +80,8 @@ The table lists the actions the app provides an entry point for. Not every actio
 | System | List DNS Domains | `container system dns list` |
 | System | Install Recommended Kernel | `container system kernel set` |
 | System | System Properties | `container system property list` |
-| Kubernetes | Create Cluster (Experimental) | `container k8s create` |
-| Kubernetes | Delete Cluster | `container k8s delete` |
-| Kubernetes | List Clusters | `container k8s list` |
-| Kubernetes | Load Image into Cluster | `container k8s load-image` |
-| Kubernetes | Write kubeconfig | `container k8s write-config` |
+| Kubernetes | Create Cluster (Experimental) | `container cluster create` (`k8s create` before 1.6.1) |
+| Kubernetes | Delete Cluster | `container cluster delete` (`k8s delete` before 1.6.1) |
+| Kubernetes | List Clusters | `container cluster list` (`k8s list` before 1.6.1) |
+| Kubernetes | Load Image into Cluster | `container cluster load-image` (`k8s load-image` before 1.6.1) |
+| Kubernetes | Write kubeconfig | `container cluster write-config` (`k8s write-config` before 1.6.1) |

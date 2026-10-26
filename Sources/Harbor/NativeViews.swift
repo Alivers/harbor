@@ -6,7 +6,7 @@ extension Page {
     /// The read-only listing at the top of a generic resource page.
     var listing: [String] { switch self {
     case .build: ["builder", "status"]; case .networks: ["network", "list"]; case .volumes: ["volume", "list"]
-    case .machines: ["machine", "list"]; case .kubernetes: ["k8s", "list"]; case .registries: ["registry", "list"]
+    case .machines: ["machine", "list"]; case .kubernetes: ["cluster", "list"]; case .registries: ["registry", "list"]
     default: []
     } }
     /// Catalog commands that act on one listed resource, named by the table's first column.
@@ -15,13 +15,13 @@ extension Page {
     case .networks: ["network inspect", "network delete"]
     case .volumes: ["volume inspect", "volume delete"]
     case .machines: ["machine inspect", "machine logs", "machine set-default", "machine stop", "machine delete"]
-    case .kubernetes: ["k8s write-config", "k8s delete"]
+    case .kubernetes: ["cluster write-config", "cluster delete"]
     case .registries: ["registry logout"]
     default: []
     } }
     var note: String? { switch self {
-    case .kubernetes: "Kubernetes is an experimental plugin. Creating a cluster pulls node images and merges ~/.kube/config. There is no k8s start; Harbor never creates clusters on its own."
-    case .machines: "Machine creation controls the home directory mount. The example uses --home-mount none; choose read-only or read-write sharing as needed."
+    case .kubernetes: "Kubernetes is an experimental plugin. Creating a cluster pulls node images and adds it to ~/.kube/config; deleting one can leave kubectl with no current context. There is no cluster start; Harbor never creates clusters on its own. To use a local image in a cluster, right-click it on the Images page."
+    case .machines: "A machine is much less isolated than a container: it mounts your home folder read-write by default, can use your SSH agent, runs with every Linux capability and gives its user passwordless sudo. Create machines only from images you trust. The example uses --home-mount none."
     default: nil
     } }
 }
@@ -32,6 +32,7 @@ extension Page {
         switch self {
         case .networks: ("Create Network", .createNetwork)
         case .volumes: ("Create Volume", .createVolume)
+        case .kubernetes: ("Create Cluster", .createCluster)
         case .build: ("Build Image", .build(BuildOptions()))
         default: nil
         }
@@ -87,7 +88,8 @@ struct ResourceView: View {
             .paneScroll()
         }
         // Reload after any job finishes: it may have created or deleted what this page lists.
-        .task(id: "\(store.changeCount) \(store.engine.isRunning)") { await load() }
+        // The Kubernetes page reads again once the store knows the plugin's name in this CLI.
+        .task(id: "\(store.changeCount) \(store.engine.isRunning) \(store.clusterPlugin ?? "")") { await load() }
     }
     @ViewBuilder private var listing: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -153,7 +155,8 @@ private struct ResourceTable: View {
                         Text(names.isEmpty ? "—" : names.joined(separator: ", ")).font(.system(size: 12)).foregroundStyle(Color.harborSub)
                             .lineLimit(1).help(names.joined(separator: ", "))
                     }
-                    if !actions.isEmpty, let name = table.rows[r].first, !name.isEmpty {
+                    // A cluster lists one row per node; its actions go on the first.
+                    if !actions.isEmpty, let name = table.rows[r].first, !name.isEmpty, r == 0 || table.rows[r - 1].first != name {
                         Menu {
                             ForEach(actions) { op in
                                 Button(op.title) { store.present(.operation(NativeRequest(op, arguments: op.example(naming: name)))) }
@@ -354,7 +357,7 @@ struct NativeOperationSheet: View {
             Label("Runs with sudo in Terminal, where macOS asks for your password. Harbor never sees it.", systemImage: "lock")
                 .font(.callout).foregroundStyle(.secondary)
         }
-        if operation.path == ["k8s", "create"] || operation.path == ["k8s", "write-config"] {
+        if operation.path == ["cluster", "create"] || operation.path == ["cluster", "write-config"] {
             Label("Updates your kubeconfig as the official CLI does; check the cluster name.", systemImage: "info.circle")
                 .font(.callout).foregroundStyle(.secondary)
         }
@@ -371,7 +374,7 @@ struct NativeOperationSheet: View {
         }
     }
     private func makeCommand() throws -> Command {
-        var command = store.config.nativeCommand(operation.path + (try ArgumentTokenizer.split(arguments)))
+        var command = store.native(operation.path + (try ArgumentTokenizer.split(arguments)))
         guard !command.arguments.isEmpty else { throw HarborError.message("Enter a subcommand, for example: system status") }
         let folder = directory.trimmingCharacters(in: .whitespaces)
         if !folder.isEmpty {

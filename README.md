@@ -2,7 +2,7 @@
 
 A native Swift + SwiftUI manager for Apple Container. **Native features come first; Docker / Compose is only an optional extension.** No Electron, WebView or Node.js.
 
-This is the **0.4 preview** and requires **macOS 27** on Apple silicon. The app calls the official `container` CLI directly and does not implement its own virtual machine, container engine or Docker API.
+This is the **0.4 preview** and requires **macOS 27** on Apple silicon. It supports Apple Container 1.5.0 and 1.6.0; features that only 1.6.0 has appear when your CLI's help lists them. The app calls the official `container` CLI directly and does not implement its own virtual machine, container engine or Docker API.
 
 ## Using Harbor
 
@@ -20,9 +20,11 @@ This is the **0.4 preview** and requires **macOS 27** on Apple silicon. The app 
   - **Files**: browse the container's folders, download files, and upload by picking or dropping files.
   - **Inspect**: the raw JSON.
 
-  Deleting a running container stops it first, after you confirm.
-- **Run Container form.** Pick a network and named volumes from lists, mount a folder, and set Delete-when-stopped, architecture (to run amd64 images), init process, read-only root, entrypoint, working directory, user and labels. Each option appears only when your CLI's `container run --help` lists it.
-- **Images.** Build from a Dockerfile, tag, push, save to and load from archives, and remove dangling or unused images. Each image shows when it was created and which containers use it. **Import from Docker** copies images from OrbStack, Docker Desktop or Colima.
+  Deleting a running container stops it first, after you confirm. A container's menu also exports its filesystem as a tar archive and, with Apple Container 1.6.0, commits it to a new image.
+- **Run Container form.** Pick a network and named volumes from lists, mount a folder, and set Delete-when-stopped, architecture (to run amd64 images), init process, read-only root, entrypoint, working directory, user, labels and DNS aliases (1.6.0: extra names such as `api.test`, or `.gateway.test` for every name below it). Each option appears only when your CLI's `container run --help` lists it.
+- **Images.** Build from a Dockerfile, tag, push, inspect, save to and load from archives, and remove dangling or unused images. Each image shows when it was created and which containers use it. **Import from Docker** copies images from OrbStack, Docker Desktop or Colima. **Load into Kubernetes Cluster** copies an image into a local cluster's nodes.
+- **Kubernetes.** A Create Cluster form with worker nodes and a choice of pod network (1.6.0), resources and node image.
+- **Updates.** Harbor checks GitHub once a day for a new Apple Container release (turn it off in Settings). The Engine page then offers the update: it stops the engine, updates with Homebrew or Apple's signed installer (whichever installed it) and starts the engine again. A new major version, or a CLI that neither installs, is left to you with a link to the release notes.
 - **Networks and volumes.** Create them with a form; the list shows which containers use each one.
 - **Compose.** Up, Stop, Restart, Pull, Build and Down (optionally deleting volumes) per project, and start, stop, restart, logs, pull and build per service.
 - **Drag and drop.** Drop Compose files to import a project, `.tar` archives to load images, or a folder or Dockerfile to open the Build Image form.
@@ -33,18 +35,18 @@ This is the **0.4 preview** and requires **macOS 27** on Apple silicon. The app 
 
 ## Feature coverage
 
-Checked against the actual help output of the official Apple Container **1.5.0** CLI: all 67 leaf subcommands have an entry point.
+All 68 leaf subcommands of Apple Container **1.6.0** have an entry point. The 67 that 1.5.0 has were checked against the help of its official CLI; `commit` and the other 1.6.0 changes against the upstream source (see `FEATURES.md`).
 
 | Category | Current implementation |
 | --- | --- |
-| Containers | Native JSON list with filter, sort and search, run form, start/stop/restart and delete for one or many, port links, inspector with details, live logs, live stats charts, file browser with download/upload, inspect JSON, Terminal shell; export and prune go through the command panel |
-| Images | Native list with search, creation date and in-use badge, background pull, build form, tag, push, save, load, prune, import from another Docker engine, run from image, multi-select delete; inspect goes through the command panel |
+| Containers | Native JSON list with filter, sort and search, run form (with DNS aliases on 1.6.0), start/stop/restart and delete for one or many, port links, inspector with details, live logs, live stats charts, file browser with download/upload, inspect JSON, Terminal shell, export, commit to image (1.6.0); prune goes through the command panel |
+| Images | Native list with search, creation date and in-use badge, background pull, build form, tag, push, inspect, save, load, prune, import from another Docker engine, load into a Kubernetes cluster, run from image, multi-select delete |
 | Build | Build form (context, Dockerfile, tags, build arguments, target, platform), BuildKit status, builder start/stop/delete |
 | Networks, volumes | Lists read from the CLI and shown as tables with a Used By column, inspect/delete per row, create forms, prune |
 | Registries | Login list, log in/out; interactive credentials are entered in Terminal |
 | Linux machines | Create, run, list, inspect, configure, default machine, logs, stop and delete |
-| System | Engine start/stop, status, version, logs, disk usage, DNS, kernel, properties |
-| Kubernetes | Official experimental `k8s` plugin: create, delete, list, load-image, write-config |
+| System | Engine start/stop, status, version, logs, disk usage, DNS, kernel, properties; update check and one-click update |
+| Kubernetes | Official experimental plugin (`container cluster`, `k8s` before 1.6.1): create form (workers and pod network on 1.6.0), delete, list, load-image (chosen nodes on 1.6.0), write-config |
 | Native commands | Searchable command catalog, custom arguments, working directory, live local help, Terminal mode |
 | Compose (optional) | Multi-file import (or drop) with override order, validate, build, pull, up, stop, restart, down, logs and status, per-service actions, and each project's containers listed in place; runs the real Docker CLI / Compose against a dedicated Socktainer socket |
 
@@ -73,9 +75,13 @@ DNS create/delete runs `sudo container system dns …` in Terminal, where the sy
 
 ### About Kubernetes
 
-Early Apple Container releases had no Kubernetes support. 1.5.0 ships an official experimental plugin that can create local development clusters; this is a native capability and does not depend on Socktainer. 1.5.0 has no `k8s start`, so Harbor has no invented start button.
+Early Apple Container releases had no Kubernetes support. 1.5.0 ships an official experimental plugin that can create local development clusters; this is a native capability and does not depend on Socktainer. 1.6.0 adds worker nodes (`--workers`), clusters without a pod network (`--cni NONE`) and loading an image into chosen nodes (`load-image --node`). 1.6.1 renamed the plugin from `container k8s` to `container cluster`; Harbor uses whichever name the local CLI has. There is no `cluster start`, so Harbor has no invented start button.
 
-Creating a cluster and writing config update kubeconfig as the official CLI does. The local help and the [official documentation](https://github.com/apple/container/blob/1.5.0/docs/kubernetes.md) define what is supported. Harbor never creates clusters automatically.
+Creating a cluster and writing config update kubeconfig as the official CLI does. The local help and the [official documentation](https://github.com/apple/container/blob/1.6.0/docs/kubernetes.md) define what is supported. Harbor never creates clusters automatically.
+
+### Updating Apple Container
+
+When a newer release is out, the Engine page and the foot of the sidebar say so. **Update** asks first, because the engine stops for the update and every running container with it. A CLI installed with Homebrew is updated with `brew upgrade container`, but only once Homebrew's formula has the new version: it can lag the release by days, and until then Harbor says so without stopping anything. Otherwise Harbor downloads Apple's signed package exactly as for a first install and waits for Installer to finish; the package replaces only `/usr/local/bin/container`, so a CLI elsewhere is left to you. A new major version may need its own upgrade path, so Harbor links its release notes instead of updating in place. The engine then starts again; containers do not restart on their own. Updates move forward only; to go back to an older release, follow Apple's uninstall and install steps.
 
 ### Docker / Compose is optional
 
@@ -115,7 +121,7 @@ docker run --rm -v "$PWD":/src -w /src swift:6.1-noble swift run HarborChecks
 
 - `HARBOR_BUILD_DIR` sets the build cache directory.
 - `HARBOR_CONFIGURATION=debug` produces a debug build; the script defaults to release.
-- `python3 scripts/check-native-catalog.py` checks the command catalog against the local CLI help; `HARBOR_CONTAINER` selects the executable.
+- `python3 scripts/check-native-catalog.py` checks the command catalog against the local CLI help; `HARBOR_CONTAINER` selects the executable. Plugin commands (`build`, `builder`, and `cluster`, checked as `k8s` on a CLI before 1.6.1) are read from the plugin executables next to the CLI, or from `HARBOR_PLUGINS`, so the services need not run.
 - `python3 scripts/check-docker-adapter.py` runs the real Docker CLI and Compose plugin against a fake Engine API to check the `compose ps` JSON the app decodes; `HARBOR_DOCKER` selects the Docker path.
 - The build script produces a locally ad-hoc signed `.app` that is not notarized. Sign it with a developer identity and notarize it before distributing to other Macs.
 
@@ -135,9 +141,10 @@ Optional Compose → Docker CLI → dedicated Socktainer socket → Apple Contai
 - Views observe only the state they read (`@Observable`), the 6-second refresh skips unchanged data, and output views append text instead of redrawing it. In the background Harbor reads state every 30 seconds only while the menu bar extra is shown, and not at all otherwise.
 - The file browser lists folders with the container's own `ls` and copies with `container copy`. Images without `ls` (distroless, scratch) cannot be browsed, though a known path can still be downloaded.
 - Importing from another Docker engine names that engine's socket explicitly, like every Docker command Harbor runs, and only reads there (`image ls`, `image save`).
+- The only request Harbor makes on its own is the daily release check, a read of `api.github.com/repos/apple/container/releases/latest`; Settings turns it off. Installers are only ever taken from apple/container's own release downloads.
 - Timeouts and cancellation are supported; canceling the CLI does not guarantee that work already submitted to the engine is undone, so refresh to check state.
 - A command that writes more than 2 MB is stopped and you are asked to use Terminal. The service log view shows the last 256 KB.
-- The app stores tool paths, Compose file paths and two preferences; it does not persist environment variables entered when creating a container. The container overview hides environment values until you choose to show them. Logs and inspect output may contain sensitive data; review them before sharing.
+- The app stores tool paths, Compose file paths and a few preferences; it does not persist environment variables entered when creating a container. The container overview hides environment values until you choose to show them. Logs and inspect output may contain sensitive data; review them before sharing.
 
 ## Open-source references
 
@@ -147,7 +154,7 @@ The public features and architecture notes of these projects were studied for id
 - [capsule-native/capsule](https://github.com/capsule-native/capsule): Swift module boundaries and native backend design.
 - [PenningLabs/container-desktop](https://github.com/PenningLabs/container-desktop): container details and system feature organization.
 
-Runtime references: [Apple Container 1.5.0](https://github.com/apple/container/releases/tag/1.5.0), [Socktainer](https://github.com/socktainer/socktainer), [Docker Compose](https://docs.docker.com/reference/cli/docker/compose/). These tools are installed separately; no third-party implementation is merged into this project.
+Runtime references: [Apple Container 1.6.0](https://github.com/apple/container/releases/tag/1.6.0), [Socktainer](https://github.com/socktainer/socktainer), [Docker Compose](https://docs.docker.com/reference/cli/docker/compose/). These tools are installed separately; no third-party implementation is merged into this project.
 
 ## Validation scope
 

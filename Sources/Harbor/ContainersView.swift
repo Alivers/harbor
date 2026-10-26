@@ -36,6 +36,8 @@ struct ContainersView: View {
     @ViewState<[ContainerRow]> private var pendingDelete: [ContainerRow] = []
     /// When the selection last changed, to tell a double-click on a new row from one on the row already shown.
     @ViewState<Date> private var selectionChanged = Date.distantPast
+    /// Whether the local CLI has `commit` (1.6.0).
+    @ViewState<Bool> private var canCommit = false
 
     private var rows: [ContainerRow] {
         sort.ordered(store.containers.filter { c in
@@ -64,6 +66,7 @@ struct ContainersView: View {
         // Containers that are gone (deleted here or elsewhere) leave the selection.
         .onChange(of: store.containers.map(\.id)) { _, ids in selection.formIntersection(ids) }
         .onChange(of: selection) { _, _ in selectionChanged = Date() }
+        .task(id: "\(store.config.container) \(store.installedVersion ?? "")") { canCommit = await store.help(for: ["commit"]) != nil }
         .confirmationDialog(deleteTitle, isPresented: Binding(get: { !pendingDelete.isEmpty }, set: { if !$0 { pendingDelete = [] } }),
                             titleVisibility: .visible) {
             Button(pendingDelete.contains(where: \.running) ? "Stop and Delete" : "Delete", role: .destructive) { pendingDelete.forEach { store.delete($0) } }
@@ -106,8 +109,8 @@ struct ContainersView: View {
             } description: {
                 Text("Run a container from an image. It starts in the background and shows up here.")
             } actions: {
-                Button("Run Container…") { store.present(.run(RunOptions())) }.buttonStyle(.borderedProminent)
-                Button("Pull an Image…") { store.present(.pull) }
+                Button("Run Container") { store.present(.run(RunOptions())) }.buttonStyle(.borderedProminent)
+                Button("Pull an Image") { store.present(.pull) }
             }
             .huggingGlassPanel(height: 320)
         } else {
@@ -173,6 +176,9 @@ struct ContainersView: View {
         Button("Browse Files") { show(c, .files) }.disabled(!c.running)
         ForEach(c.portMappings.compactMap(\.url), id: \.self) { url in Link("Open \(url.host() ?? ""):\(url.port ?? 0)", destination: url) }
         Button("Copy ID") { store.copy(c.id) }
+        Divider()
+        if canCommit { Button("Commit to Image…") { store.present(.commit(c)) }.disabled(busy) }
+        Button("Export Filesystem…") { store.export(c) }.disabled(busy)
         Divider()
         Button("Delete…", role: .destructive) { pendingDelete = [c] }.disabled(busy)
     }
@@ -304,7 +310,7 @@ private struct ContainerInspector: View {
             }
             Spacer(minLength: 0)
             Button(role: .destructive) { onDelete(c) } label: { Image(systemName: "trash") }
-                .disabled(busy).help("Delete…").accessibilityLabel("Delete")
+                .disabled(busy).help("Delete").accessibilityLabel("Delete")
         }
         .buttonStyle(MiniButtonStyle())
     }
@@ -346,6 +352,10 @@ private struct ContainerOverview: View {
                                         Text(network.address.isEmpty ? "Not connected" : network.address).font(.system(size: 11).monospaced()).textSelection(.enabled)
                                             .foregroundStyle(network.address.isEmpty ? Color.harborSub : Color.primary)
                                         if !network.hostname.isEmpty { Text(network.hostname).font(.system(size: 11)).foregroundStyle(Color.harborSub).textSelection(.enabled) }
+                                        ForEach(network.aliases, id: \.self) { alias in
+                                            Text(alias).font(.system(size: 11)).foregroundStyle(Color.harborSub).textSelection(.enabled)
+                                                .help(alias.hasPrefix(".") ? "Every name below \(alias.dropFirst())" : "DNS alias")
+                                        }
                                     }
                                 }
                             }
@@ -435,7 +445,8 @@ private struct ContainerLogs: View {
         let command = store.config.nativeCommand(["logs", "-n", "500"] + (follow ? ["--follow"] : []) + [container.id])
         // A followed stream is read as it arrives, so it may run far past the usual 2 MB cap.
         let limit: UInt64 = follow ? 256 * 1_048_576 : Runner.outputLimit
-        do { _ = try await Runner.run(command, timeout: follow ? 3600 : 30, outputLimit: limit) { sink.yield($0) } }
+        // Following lasts as long as the tab shows it; the timeout only bounds a stream nobody stopped.
+        do { _ = try await Runner.run(command, timeout: follow ? 86_400 : 30, outputLimit: limit) { sink.yield($0) } }
         catch { if !Task.isCancelled { sink.yield("\n" + error.localizedDescription + "\n") } }
         sink.finish(); await reader.value
     }

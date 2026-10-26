@@ -1,7 +1,7 @@
 import Foundation
 
 /// The signed installer package of an apple/container GitHub release.
-public struct InstallerPackage: Equatable, Sendable {
+public struct InstallerPackage: Equatable, Codable, Sendable {
     public static let latestRelease = URL(string: "https://api.github.com/repos/apple/container/releases/latest")!
     public static let releasesPage = URL(string: "https://github.com/apple/container/releases")!
     public var version: String
@@ -30,4 +30,47 @@ public struct InstallerPackage: Equatable, Sendable {
         guard let asset = signed ?? official.first else { return nil }
         return InstallerPackage(version: release.tag, url: asset.url, size: asset.size ?? 0)
     }
+}
+
+/// Apple Container versions as the CLI and the GitHub releases spell them.
+public enum ReleaseVersion {
+    /// The version in `container --version`: `container CLI version 1.6.0 (build: release, commit: 1a2b3c4)`.
+    public static func cli(_ text: String) -> String? {
+        guard let range = text.range(of: #"version v?[0-9]+(\.[0-9]+)*"#, options: .regularExpression) else { return nil }
+        let version = text[range].dropFirst("version ".count)
+        return String(version.hasPrefix("v") ? version.dropFirst() : version)
+    }
+    /// Whether `candidate` is a later release than `installed`, comparing numbers (1.10.0 is later than 1.9.2).
+    public static func isNewer(_ candidate: String, than installed: String) -> Bool {
+        func parts(_ version: String) -> [Int] { version.split(separator: ".").map { Int($0.filter(\.isNumber)) ?? 0 } }
+        let a = parts(candidate), b = parts(installed), count = max(a.count, b.count)
+        func padded(_ v: [Int]) -> [Int] { v + Array(repeating: 0, count: count - v.count) }
+        return padded(b).lexicographicallyPrecedes(padded(a))
+    }
+    /// Whether a new major version, which upstream warns may need its own upgrade path.
+    public static func isMajorUpgrade(_ candidate: String, from installed: String) -> Bool {
+        func major(_ version: String) -> Int { Int(version.prefix { $0 != "." }.filter(\.isNumber)) ?? 0 }
+        return major(candidate) > major(installed)
+    }
+    /// Whether the CLI at `path` belongs to Homebrew (a link into its Cellar), which then also updates it.
+    public static func managedByHomebrew(_ path: String) -> Bool {
+        URL(fileURLWithPath: path).resolvingSymlinksInPath().path.contains("/Cellar/")
+    }
+    /// Where Apple's package installs the CLI.
+    public static let packagePath = "/usr/local/bin/container"
+    /// Whether the CLI at `path` is the one Apple's package installs, and so the one an update replaces.
+    public static func installedByPackage(_ path: String) -> Bool {
+        func resolved(_ path: String) -> String { URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path }
+        return resolved(path) == resolved(packagePath)
+    }
+    /// The version Homebrew's formula offers, from `brew info --json=v2 container`.
+    public static func homebrewStable(_ json: String) -> String? {
+        struct Info: Decodable {
+            struct Formula: Decodable { struct Versions: Decodable { var stable: String? }; var versions: Versions }
+            var formulae: [Formula]
+        }
+        return (try? JSONDecoder().decode(Info.self, from: Data(json.utf8)))?.formulae.first?.versions.stable
+    }
+    /// The release page of a version, for its notes.
+    public static func notes(_ version: String) -> URL { InstallerPackage.releasesPage.appendingPathComponent("tag").appendingPathComponent(version) }
 }

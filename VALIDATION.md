@@ -96,6 +96,29 @@ From a usability review (built by CI, not yet looked at on a Mac):
 - The Engine page hides the setup guide once the engine runs and has containers, and shows four everyday system commands (status, logs, disk usage, version), with the rest in its … menu.
 - The sidebar no longer shows the image count, which read as a notification; only running containers are counted.
 
+## Update: Apple Container 1.6.0
+
+Date: 2026-10-23. Apple Container 1.6.0 was released on 2026-10-19. Checked on Linux against the upstream source (tags 1.5.0 and 1.6.0), not against a running 1.6.0 CLI:
+
+- **What changed upstream, read from the diff:** `build` and `builder` moved into CLI plugins; `container commit` is new; `--network` takes repeated `alias=` properties, stored as `aliases` in the attachment's options; `k8s create` gained `--workers` and `--cni NONE`, `k8s load-image` gained `--node`, and `k8s list` prints one row per node with the cluster in the first column; `image list` prints the images it can read and then exits nonzero when it skipped any; `machine create` gained `--user`, `--uid`, `--gid` and `--home`. The build flags the form uses did not change. The release also fixes two security issues (image pulls by digest, and `build` reading outside its context).
+- **Plugin help:** a small program on the same swift-argument-parser version (1.8.2) as 1.6.0 confirmed that `container build --help` and `container builder start --help` reach the CLI's plugin dispatcher with `--help` intact; the dispatcher replaces the first argument with the plugin's path, so the plugin prints `USAGE: build …` and `USAGE: builder start …`. `NativeHelp` accepts those, as it did for `k8s`. Through the dispatcher this needs the services running, which was not exercised.
+- **All 31 core checks pass** on Linux (Swift 6.1, `swift:6.1-noble`). The new checks cover plugin help, the 68-entry catalog, DNS aliases in 1.6.0 JSON and in the run form's `--network` value (including rejecting `*`, commas and spaces), partial image listings, `commit` arguments, the Create Cluster form, clusters and nodes from a `k8s list` table, `load-image --node` arguments, version parsing and comparison, and telling a Homebrew CLI (a link into the Cellar) from the installer's.
+- **CI build:** the macOS job built Harbor.app with the new UI (macOS 26.6 runner, Xcode 26.6, Swift 6.3.3), and the Linux job ran the 31 checks. The macOS runner is older than macOS 27, so it built HarborChecks without running it.
+- **Review follow-up:** a Homebrew update first runs `brew update` and reads `brew info --json=v2 container`, and stops nothing when the formula does not have the release yet; a package update needs the CLI at `/usr/local/bin/container`; a new major version is not offered in place; the daily check's time and result survive a relaunch, and turning the check off hides the card at once. The checks cover the `brew info` parsing, the package path, major versions and the saved release; the Homebrew and Installer runs were not exercised.
+- **On a Mac** (2026-10-23, macOS 27.0.1, Swift 6.4, Apple Container 1.5.0 installed and left as it was): the release app builds and its signature verifies; HarborChecks passes all 31 checks; `check-native-catalog.py` finds 67 of 68 commands in 1.5.0 (only `commit`, which is gated, is missing) and 68 of 68 in the official 1.6.0 binaries, expanded from the package without installing it; the parsers read real CLI output correctly (versions, installer package choice, `brew info`, container, image and `k8s` lists, inspect), and so does the help gating for `commit`, `alias=`, `--workers` and `load-image --node`; Export Filesystem wrote a valid tar archive from a running container.
+- **Process wait on macOS 27:** `Runner.run` sometimes hung for good in `Process.waitUntilExit()` (in about 5 of 8 HarborChecks runs on that Mac, sampled in `-[NSConcreteTask waitUntilExit]`'s run loop), on main too. It now polls `isRunning` instead, and 15 of 15 runs passed with that change.
+- **Not exercised:** none of the new UI has been clicked through, and none of the 1.6.0-only paths has run against a 1.6.0 engine: commit, DNS aliases resolving, cluster creation with workers, loading images into nodes, the update check against GitHub, and the update itself (stopping the engine, `brew upgrade container` or Installer, waiting for the new version, starting again).
+
+## Update: Apple Container 1.6.1 on a Mac
+
+Date: 2026-10-26, on the same Mac (macOS 27.0.1), after its engine was updated from 1.5.0 and came up as 1.6.1. The CLI calls below are the argument lists Harbor builds, run with the CLI directly; Harbor's sheets for them were not clicked through.
+
+- **1.6.1 renamed the Kubernetes plugin** from `container k8s` to `container cluster` (same subcommands and options; the default cluster is `cluster-dev`), so the 1.6.0 build found none of its five Kubernetes commands. The catalog now uses `cluster`, and the store finds which name the local CLI has. `check-native-catalog.py` passes 68 of 68 on 1.6.1 and on the official 1.6.0 binaries, which still have `k8s`. Real `cluster --help` and 1.6.0 `k8s --help` output pick the right name.
+- **DNS aliases:** `run --network default,alias=probe.alias.test,alias=.probe.alias.test` started the container; `inspect` keeps the aliases in the attachment's options, where Harbor reads them. The container DNS server (`127.0.0.1:2053`) answered `probe.alias.test` and `web.probe.alias.test` with the container's address and `nothere.alias.test` with NXDOMAIN. No DNS domain was created (that needs `sudo`), so the system resolver did not route these names there; on that Mac a proxy's DNS answered every name instead.
+- **Commit:** `commit` on the running container took half a second and the container kept running. The image's entrypoint and command are the container's own, which the Commit sheet now says.
+- **Clusters:** `cluster create --name harbor-verify --workers 1 --cpus 2 --memory 2g` brought up two Ready nodes in 46 s. `cluster list` printed one row per node and parsed into one cluster with both nodes. `cluster load-image --node harbor-verify-worker-1` put the committed image on the worker only (checked with `crictl images` on both nodes), and a pod using it with `imagePullPolicy: Never` ran there. `cluster delete` removed the nodes and the cluster's kubeconfig entry, but left kubeconfig without a current context (it had been another one before); the Kubernetes page now says so. The original kubeconfig was put back afterwards.
+- **Checks:** HarborChecks passes all 31 checks in 5 of 5 runs, and the release app builds.
+
 ## Not yet verified
 
 Apple Container / Socktainer are not formally installed on the test machine, so none of the following count as completed end-to-end tests:
@@ -103,7 +126,7 @@ Apple Container / Socktainer are not formally installed on the test machine, so 
 - Creating, starting, stopping and deleting real containers; pulling, building and pushing images; copying files.
 - Network traffic, DNS, published ports, volume persistence, resource stats.
 - Linux machine creation, mounts and interactive login.
-- Kubernetes cluster creation, CNI, kubeconfig merge and image loading.
+- Kubernetes cluster creation and image loading from Harbor's own sheets (the CLI calls they make ran on 1.6.1, see above), and CNI options other than the bundled one.
 - Socktainer version matching, service startup, and Compose up/stop, builds and service discovery.
 - Terminal automation permission, administrator DNS authorization and interactive registry login.
 - Live output of the real CLIs in the Activity sheet, for example whether image pull progress is written line by line when not attached to a terminal.

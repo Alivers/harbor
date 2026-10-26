@@ -64,9 +64,12 @@ public enum NativeParser {
         d.networks = names.map { name in
             let n = live[name]
             let configured = (config["networks"] as? [[String: Any]])?.first { $0["network"] as? String == name }
-            let hostname = (n?["hostname"] as? String) ?? ((configured?["options"] as? [String: Any])?["hostname"] as? String) ?? ""
+            let options = configured?["options"] as? [String: Any]
+            let hostname = (n?["hostname"] as? String) ?? (options?["hostname"] as? String) ?? ""
+            // 1.6.0 stores DNS aliases with the attachment's options, and leaves the key out when there are none.
             return ContainerDetails.Network(name: name, address: ((n?["ipv4Address"] ?? n?["address"]) as? String).map(address) ?? "",
-                                            gateway: (n?["ipv4Gateway"] ?? n?["gateway"]) as? String ?? "", hostname: hostname)
+                                            gateway: (n?["ipv4Gateway"] ?? n?["gateway"]) as? String ?? "", hostname: hostname,
+                                            aliases: options?["aliases"] as? [String] ?? [])
         }
         d.labels = config["labels"] as? [String: String] ?? [:]
         if let platform = config["platform"] as? [String: Any], let os = platform["os"] as? String, let arch = platform["architecture"] as? String {
@@ -104,6 +107,16 @@ public enum NativeParser {
                             size: size > 0 ? ByteCountFormatter.string(fromByteCount: size, countStyle: .file) : "—", created: created)
         }
     }
+    /// `image list --format json`. Since 1.6.0 the CLI prints the images it can read, then exits nonzero when it
+    /// skipped any, so a failed run with a JSON listing still has rows; `skipped` is what the CLI said about the rest.
+    public static func imageListing(output: String, errorOutput: String, status: Int32) throws -> (rows: [ImageRow], skipped: String?) {
+        if status == 0 { return (try images(output), nil) }
+        let message = errorOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard output.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("["), let rows = try? images(output) else {
+            throw HarborError.message(message.isEmpty ? "Command failed with exit code \(status)" : message)
+        }
+        return (rows, message.isEmpty ? "Some images could not be read." : message)
+    }
     /// `container stats --format json` rows; CPU time is cumulative, so a percentage needs two samples.
     public static func stats(_ text: String) throws -> [ContainerStats] {
         try JSONDecoder().decode([ContainerStats].self, from: Data(text.utf8))
@@ -135,13 +148,34 @@ public enum ArgumentTokenizer {
     }
 }
 
+/// The Kubernetes plugin's command: `container cluster` since 1.6.1, `container k8s` before. The catalog, the forms
+/// and the Kubernetes page use the new name; the store passes the old one to a CLI that only has that.
+public enum KubernetesPlugin {
+    public static let current = "cluster", legacy = "k8s"
+    /// Newest first, as the store tries them.
+    public static let names = [current, legacy]
+    /// `arguments` for a CLI whose plugin answers to `name`; nil (not read yet, or no plugin) keeps the new name.
+    public static func arguments(_ arguments: [String], plugin name: String?) -> [String] {
+        guard let name, name != current, arguments.first == current else { return arguments }
+        return [name] + arguments.dropFirst()
+    }
+    /// The cluster the CLI uses when given no name: `cluster-dev`, or `k8s-dev` before 1.6.1.
+    public static func defaultCluster(plugin name: String?) -> String { (name ?? current) + "-dev" }
+}
+
 public enum NativeHelp {
+    /// Commands the CLI hands to a plugin executable, which prints its own name rather than the dispatcher's:
+    /// `USAGE: builder start`. `build` and `builder` became plugins in 1.6.0 (1.5.0 printed `USAGE: container build`);
+    /// plugins only load while the engine runs.
+    public static let plugins: Set<String> = ["build", "builder", KubernetesPlugin.current, KubernetesPlugin.legacy]
     public static func matches(_ text: String, path: [String]) -> Bool {
         if path.isEmpty { return text.contains("USAGE: container") }
-        let expected = "USAGE: container " + path.joined(separator: " ")
-        if text.contains(expected) { return true }
-        // Plugins print their own executable name rather than the dispatcher name.
-        return path.first == "k8s" && text.contains("USAGE: " + path.joined(separator: " "))
+        // A CLI before 1.6.1 answers a `cluster` command under its old name.
+        let spellings = path[0] == KubernetesPlugin.current ? [path, [KubernetesPlugin.legacy] + path.dropFirst()] : [path]
+        return spellings.contains { words in
+            let command = words.joined(separator: " ")
+            return text.contains("USAGE: container " + command) || (plugins.contains(words[0]) && text.contains("USAGE: " + command))
+        }
     }
 }
 
@@ -178,6 +212,7 @@ public struct NativeOperation: Identifiable, Hashable, Sendable {
         .init("Containers", "List", "list", "--all --format json"),
         .init("Containers", "Exec", "exec", "--interactive --tty web /bin/sh", terminal: true),
         .init("Containers", "Export Filesystem", "export", "-o /tmp/web.tar web"),
+        .init("Containers", "Commit to Image", "commit", "web local/web:snapshot"),
         .init("Containers", "Reclaim Filesystem Space", "clean", "web"),
         .init("Containers", "Logs", "logs", "-n 300 web"),
         .init("Containers", "Inspect", "inspect", "web"),
@@ -216,9 +251,9 @@ public struct NativeOperation: Identifiable, Hashable, Sendable {
         .init("System", "Delete DNS Domain (Admin)", "system dns delete", "test", terminal: true, destructive: true, admin: true),
         .init("System", "List DNS Domains", "system dns list"), .init("System", "Install Recommended Kernel", "system kernel set", "--recommended"),
         .init("System", "System Properties", "system property list"),
-        .init("Kubernetes", "Create Cluster (Experimental)", "k8s create", "--name dev --cpus 2 --memory 4g"),
-        .init("Kubernetes", "Delete Cluster", "k8s delete", "--name dev", destructive: true), .init("Kubernetes", "List Clusters", "k8s list"),
-        .init("Kubernetes", "Load Image into Cluster", "k8s load-image", "--name dev local/app:dev"),
-        .init("Kubernetes", "Write kubeconfig", "k8s write-config", "--name dev")
+        .init("Kubernetes", "Create Cluster (Experimental)", "cluster create", "--name dev --cpus 2 --memory 4g"),
+        .init("Kubernetes", "Delete Cluster", "cluster delete", "--name dev", destructive: true), .init("Kubernetes", "List Clusters", "cluster list"),
+        .init("Kubernetes", "Load Image into Cluster", "cluster load-image", "--name dev local/app:dev"),
+        .init("Kubernetes", "Write kubeconfig", "cluster write-config", "--name dev")
     ]
 }
