@@ -109,8 +109,8 @@ struct ContainersView: View {
             } description: {
                 Text("Run a container from an image. It starts in the background and shows up here.")
             } actions: {
-                Button("Run Container…") { store.present(.run(RunOptions())) }.buttonStyle(.borderedProminent)
-                Button("Pull an Image…") { store.present(.pull) }
+                Button("Run Container") { store.present(.run(RunOptions())) }.buttonStyle(.borderedProminent)
+                Button("Pull an Image") { store.present(.pull) }
             }
             .huggingGlassPanel(height: 320)
         } else {
@@ -310,7 +310,7 @@ private struct ContainerInspector: View {
             }
             Spacer(minLength: 0)
             Button(role: .destructive) { onDelete(c) } label: { Image(systemName: "trash") }
-                .disabled(busy).help("Delete…").accessibilityLabel("Delete")
+                .disabled(busy).help("Delete").accessibilityLabel("Delete")
         }
         .buttonStyle(MiniButtonStyle())
     }

@@ -76,7 +76,7 @@ struct ImagesView: View {
             } description: {
                 Text(readProblem ?? "Pull an image such as nginx:alpine or your project's base image.")
             } actions: {
-                Button("Pull Image…") { store.present(.pull) }.buttonStyle(.borderedProminent)
+                Button("Pull Image") { store.present(.pull) }.buttonStyle(.borderedProminent)
             }
             .huggingGlassPanel(height: 320)
         } else if rows.isEmpty {
@@ -160,7 +160,7 @@ private struct ImageListRow: View {
             Group {
                 if busy { ProgressView().controlSize(.small) }
                 else {
-                    Button("Run…") { store.present(.run(RunOptions(image: image.reference))) }
+                    Button("Run") { store.present(.run(RunOptions(image: image.reference))) }
                         .buttonStyle(MiniButtonStyle()).opacity(hovering || selected ? 1 : 0)
                 }
             }

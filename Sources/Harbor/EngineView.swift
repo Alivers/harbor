@@ -64,8 +64,8 @@ struct SetupGuide: View {
                     Text("Available once the engine runs.").font(.callout).foregroundStyle(.secondary)
                 } else {
                     HStack {
-                        Button("Run Container…") { store.present(.run(RunOptions())) }.buttonStyle(.borderedProminent)
-                        Button("Pull Image…") { store.present(.pull) }
+                        Button("Run Container") { store.present(.run(RunOptions())) }.buttonStyle(.borderedProminent)
+                        Button("Pull Image") { store.present(.pull) }
                     }
                 }
             }
@@ -189,7 +189,7 @@ struct EngineView: View {
                     }
                     Spacer()
                     if store.engine.isRunning {
-                        Button("Stop Engine…") { confirmStop = true }.buttonStyle(MiniButtonStyle()).disabled(busy)
+                        Button("Stop Engine") { confirmStop = true }.buttonStyle(MiniButtonStyle()).disabled(busy)
                     } else if case .stopped = store.engine {
                         Button(busy ? "Starting…" : "Start Engine") { store.startEngine() }.buttonStyle(.borderedProminent).disabled(busy)
                     }
@@ -253,7 +253,7 @@ private struct UpdateCard: View {
                 Link("Release notes", destination: ReleaseVersion.notes(update.version)).font(.system(size: 11, weight: .medium))
             }
             Spacer(minLength: 0)
-            if plan.inPlace { Button(busy ? "Updating…" : "Update…", action: start).buttonStyle(.borderedProminent).disabled(busy) }
+            if plan.inPlace { Button(busy ? "Updating…" : "Update", action: start).buttonStyle(.borderedProminent).disabled(busy) }
         }
         .card()
     }
